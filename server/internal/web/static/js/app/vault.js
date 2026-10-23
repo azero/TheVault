@@ -5,7 +5,7 @@ import { Keyring, deriveFromPassword, fingerprint, newRecovery, proofFor, recove
 import { open, seal, sha256 } from '../core/crypto.js'
 import { b64uEncode, utf8 } from '../core/b64.js'
 import { PERSONAL, TYPES, applyHistory, decryptItem, encryptItem, matchesQuery, newId, newItem, normalizeItem, spaceNameAad } from '../core/item.js'
-import { generateSpaceKey, unwrapSpaceKey, wrapSpaceKey } from '../core/share.js'
+import { generateSpaceKey, resolveSharer, unwrapSpaceKey, wrapSpaceKey } from '../core/share.js'
 import { aesKey } from '../core/crypto.js'
 
 const listeners = new Set()
@@ -103,30 +103,32 @@ function pin(sub, fp) { const t = trusted(); t[sub] = fp; try { localStorage.set
 export const pinnedFingerprint = (sub) => trusted()[sub]
 export const pinFingerprint = pin
 
+// Highest key version we have ever seen per space. A server (or someone replaying old responses) that serves an older
+// state, for example from before a member was removed and the key rotated, is refused instead of silently believed.
+const kvKey = () => 'vault-kv:' + (vault.me?.sub ?? '')
+function seenVersions() { try { return JSON.parse(localStorage.getItem(kvKey()) || '{}') } catch { return {} } }
+function rememberVersion(id, v) { const t = seenVersions(); if ((t[id] ?? 0) < v) { t[id] = v; try { localStorage.setItem(kvKey(), JSON.stringify(t)) } catch { /* ignore */ } } }
+
 async function loadSpaces(list) {
   const next = new Map()
   for (const s of list) {
     const old = vault.spaces.get(s.id)
     const sp = { id: s.id, role: s.role, keyVersion: s.key_version, needsRotation: s.needs_rotation, members: s.members, createdBy: s.created_by, name: '(locked)', key: null, keyRaw: null, warning: '' }
     try {
+      if ((seenVersions()[s.id] ?? 0) > s.key_version) throw new Error('The server returned an older version of this space than this device has seen. It may be replaying old data. Do not use this space until an administrator has checked.')
       if (old?.key && old.keyVersion === s.key_version && old.keyRaw) {
         sp.key = old.key; sp.keyRaw = old.keyRaw
       } else {
-        // TOFU: the first time we see a sharer's keys we remember their fingerprint; a change is refused, not shrugged off.
-        const by = s.wrap.by
-        if (by !== vault.me.sub) {
-          const m = s.members.find((x) => x.sub === by)
-          const fp = m ? await fingerprint(m.enc_pub, m.sig_pub) : null
-          const pinned = pinnedFingerprint(by)
-          if (!fp) throw new Error('The person who shared this space is no longer a member, so the share cannot be verified.')
-          if (pinned && pinned !== fp) throw new Error('The sharer’s keys changed since you first saw them. Verify their fingerprint with them before trusting this space.')
-          if (!pinned) pin(by, fp)
-        }
-        sp.keyRaw = await unwrapSpaceKey({ spaceId: s.id, keyVersion: s.wrap_key_version, role: s.role, mySub: vault.me.sub, keyring: vault.keyring, wrap: s.wrap, sharerSigPub: s.wrap_by_sig_pub })
+        // The sharer's signing key must match the fingerprint we pinned the first time we saw them (TOFU); a change is
+        // refused, not shrugged off. Our own wraps are verified with our own key.
+        const who = await resolveSharer({ space: s, mySub: vault.me.sub, keyring: vault.keyring, pinned: pinnedFingerprint(s.wrap.by) })
+        sp.keyRaw = await unwrapSpaceKey({ spaceId: s.id, keyVersion: s.wrap_key_version, mySub: vault.me.sub, keyring: vault.keyring, wrap: s.wrap, sharerSigPub: who.sigPub })
+        if (who.fp) pin(s.wrap.by, who.fp)
         sp.key = await aesKey(sp.keyRaw)
       }
       const nameBytes = await open(sp.key, s.name_blob, spaceNameAad(s.id, s.key_version))
       sp.name = new TextDecoder().decode(nameBytes)
+      rememberVersion(s.id, s.key_version)
     } catch (e) {
       sp.warning = e.message || 'This space could not be opened.'
     }
@@ -161,6 +163,8 @@ export async function sync(full = false) {
   let first = true
   for (;;) {
     const res = await get('/sync?since=' + vault.seq)
+    // An incremental sync only carries items that changed since `since`; a space we have just joined has older items.
+    if (first && !full && res.spaces.some((sp) => !vault.spaces.has(sp.id))) return sync(true)
     if (first) { vault.keyVersion = res.key_version; await loadSpaces(res.spaces); first = false }
     for (const raw of res.items) await ingest(raw)
     vault.seq = res.seq
@@ -399,7 +403,7 @@ export async function createSpace(name) {
   const raw = generateSpaceKey()
   const key = await aesKey(raw)
   const me = vault.me
-  const wrap = await wrapSpaceKey({ spaceId: id, keyVersion: 1, role: 'owner', recipientSub: me.sub, recipientEncPub: vault.keyring.encPub, sharerSub: me.sub, keyring: vault.keyring, spaceKeyRaw: raw })
+  const wrap = await wrapSpaceKey({ spaceId: id, keyVersion: 1, recipientSub: me.sub, recipientEncPub: vault.keyring.encPub, sharerSub: me.sub, keyring: vault.keyring, spaceKeyRaw: raw })
   const name_blob = await seal(key, utf8(name), spaceNameAad(id, 1))
   await post('/spaces', { id, name_blob, wrap: { eph: wrap.eph, ct: wrap.ct, sig: wrap.sig } })
   await sync(true)
@@ -415,11 +419,18 @@ export async function renameSpace(id, name) {
 
 export async function searchDirectory(q) { return (await get('/directory?q=' + encodeURIComponent(q))).users }
 
+/** A recipient whose keys differ from the ones we pinned is refused: wrapping the space key to a swapped key would hand it over. */
+async function assertKeysUnchanged(sub, encPub, sigPub) {
+  const pinned = pinnedFingerprint(sub)
+  if (pinned && pinned !== (await fingerprint(encPub, sigPub))) throw new UserError('This person’s keys changed since you last verified them. Check their fingerprint with them (Spaces → Manage) before sharing anything.')
+}
+
 export async function addMember(spaceId, user, role) {
   const sp = vault.spaces.get(spaceId)
-  const wrap = await wrapSpaceKey({ spaceId, keyVersion: sp.keyVersion, role, recipientSub: user.sub, recipientEncPub: user.enc_pub, sharerSub: vault.me.sub, keyring: vault.keyring, spaceKeyRaw: sp.keyRaw })
+  await assertKeysUnchanged(user.sub, user.enc_pub, user.sig_pub)
+  const wrap = await wrapSpaceKey({ spaceId, keyVersion: sp.keyVersion, recipientSub: user.sub, recipientEncPub: user.enc_pub, sharerSub: vault.me.sub, keyring: vault.keyring, spaceKeyRaw: sp.keyRaw })
   await post(`/spaces/${spaceId}/members`, { sub: user.sub, role, key_version: sp.keyVersion, wrap: { eph: wrap.eph, ct: wrap.ct, sig: wrap.sig } })
-  pin(user.sub, await fingerprint(user.enc_pub, user.sig_pub))
+  if (!pinnedFingerprint(user.sub)) pin(user.sub, await fingerprint(user.enc_pub, user.sig_pub))
   await sync(true)
 }
 
@@ -452,7 +463,8 @@ export async function rotateSpace(spaceId, onProgress = () => {}) {
   }
   const members = []
   for (const m of sp.members) {
-    const w = await wrapSpaceKey({ spaceId, keyVersion: version, role: m.role, recipientSub: m.sub, recipientEncPub: m.enc_pub, sharerSub: vault.me.sub, keyring: vault.keyring, spaceKeyRaw: raw })
+    if (m.sub !== vault.me.sub) await assertKeysUnchanged(m.sub, m.enc_pub, m.sig_pub)
+    const w = await wrapSpaceKey({ spaceId, keyVersion: version, recipientSub: m.sub, recipientEncPub: m.enc_pub, sharerSub: vault.me.sub, keyring: vault.keyring, spaceKeyRaw: raw })
     members.push({ sub: m.sub, wrap: { eph: w.eph, ct: w.ct, sig: w.sig } })
   }
   const name_blob = await seal(key, utf8(sp.name), spaceNameAad(spaceId, version))

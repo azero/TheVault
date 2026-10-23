@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/azero/thevault/server/internal/store"
@@ -75,8 +76,22 @@ func (s *Server) markUnlocked(c *rc) {
 }
 
 // checkProof verifies the master-password proof with throttling. It writes the response and returns false on failure.
-func (s *Server) checkProof(c *rc, vk *store.VaultKeys, proof, event string) bool {
+// Checks are serialised per account: the lock state is re-read under the lock, so a burst of parallel guesses cannot all
+// be evaluated against the same "not locked yet" snapshot. Callers other than unlock (which has its own per-address
+// limit) pass limit=true to share a second per-address budget.
+func (s *Server) checkProof(c *rc, vk *store.VaultKeys, proof, event string, limit bool) bool {
 	ctx := c.R.Context()
+	if limit && !s.verifyRL.Allow(c.IP) {
+		c.W.Header().Set("Retry-After", "30")
+		c.fail(http.StatusTooManyRequests, "rate_limited", "Too many attempts from this address.")
+		return false
+	}
+	mu := s.proofLock(c.Sess.Sub)
+	mu.Lock()
+	defer mu.Unlock()
+	if fresh, err := s.Store.GetVaultKeys(ctx, c.Sess.Sub); err == nil {
+		vk = fresh
+	}
 	now := time.Now()
 	if vk.LockedUntil > now.Unix() {
 		c.W.Header().Set("Retry-After", itoa(int(vk.LockedUntil-now.Unix())))
@@ -129,7 +144,7 @@ func (s *Server) unlock(c *rc) {
 	if time.Since(time.Unix(c.Sess.CheckedAt, 0)) > time.Minute && !s.revalidate(c, c.Sess) {
 		return
 	}
-	if !s.checkProof(c, vk, in.Auth, "unlock_failed") {
+	if !s.checkProof(c, vk, in.Auth, "unlock_failed", false) {
 		return
 	}
 	now := time.Now()
@@ -162,7 +177,7 @@ func (s *Server) verifyPassword(c *rc) {
 		s.storeErr(c, err)
 		return
 	}
-	if !s.checkProof(c, vk, in.Auth, "unlock_failed") {
+	if !s.checkProof(c, vk, in.Auth, "unlock_failed", true) {
 		return
 	}
 	c.ok(map[string]bool{"ok": true})
@@ -190,7 +205,7 @@ func (s *Server) changePassword(c *rc) {
 		c.fail(http.StatusBadRequest, "bad_request", "The request is malformed.")
 		return
 	}
-	if !s.checkProof(c, vk, in.AuthOld, "unlock_failed") {
+	if !s.checkProof(c, vk, in.AuthOld, "unlock_failed", true) {
 		return
 	}
 	if err := s.Store.SetPassword(ctx, c.Sess.Sub, store.PasswordChange{KDF: in.KDF, Iter: in.Iterations, Salt: in.Salt, AuthHash: s.Pepper.Hash(in.AuthNew), WrappedUK: in.WrappedUK}); err != nil {
@@ -310,7 +325,7 @@ func (s *Server) recoveryRotate(c *rc) {
 		c.fail(http.StatusBadRequest, "bad_request", "The request is malformed.")
 		return
 	}
-	if !s.checkProof(c, vk, in.Auth, "unlock_failed") {
+	if !s.checkProof(c, vk, in.Auth, "unlock_failed", true) {
 		return
 	}
 	if err := s.Store.SetRecovery(ctx, c.Sess.Sub, s.Pepper.Hash(in.Recovery.Proof), in.Recovery.WrappedUK); err != nil {
@@ -337,7 +352,7 @@ func (s *Server) eraseOwnVault(c *rc) {
 		return
 	}
 	// Without the master password, erasing is only possible through an administrator.
-	if !s.checkProof(c, vk, in.Auth, "unlock_failed") {
+	if !s.checkProof(c, vk, in.Auth, "unlock_failed", true) {
 		return
 	}
 	if err := s.Store.EraseVault(ctx, c.Sess.Sub); err != nil {
@@ -346,4 +361,10 @@ func (s *Server) eraseOwnVault(c *rc) {
 	}
 	c.audit(s, "vault_erased_self", "success", "", nil)
 	c.ok(map[string]bool{"ok": true})
+}
+
+// proofLock returns the mutex that serialises master-password checks for one account.
+func (s *Server) proofLock(sub string) *sync.Mutex {
+	m, _ := s.proofMu.LoadOrStore(sub, new(sync.Mutex))
+	return m.(*sync.Mutex)
 }

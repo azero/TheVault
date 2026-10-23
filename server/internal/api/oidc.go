@@ -35,6 +35,10 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) authCallback(w http.ResponseWriter, r *http.Request) {
 	ip := httpx.ClientIP(r, s.Cfg.TrustedIPHeader)
 	ctx := r.Context()
+	if !s.loginRL.Allow("cb|" + ip) {
+		s.ErrorPage(w, http.StatusTooManyRequests, "Too many sign-in attempts. Wait a minute and start again.")
+		return
+	}
 	res, err := s.Auth.Callback(w, r)
 	var lr auth.LoginRequired
 	switch {
@@ -53,7 +57,10 @@ func (s *Server) authCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		log.Printf("sso callback: %v", err)
-		s.Audit.Log(ctx, audit.Event{Name: "login_failed", IP: ip, UA: r.UserAgent(), Outcome: "failure", Details: map[string]string{"reason": "callback"}})
+		// Anyone can hit this URL with garbage; one audit row per address per minute keeps the log (and SkyNet's queue) usable.
+		if s.noisy.Allow("cbfail|" + ip) {
+			s.Audit.Log(ctx, audit.Event{Name: "login_failed", IP: ip, UA: r.UserAgent(), Outcome: "failure", Details: map[string]string{"reason": "callback"}})
+		}
 		s.ErrorPage(w, http.StatusBadRequest, "Sign-in failed. Start again from the sign-in page.")
 		return
 	}

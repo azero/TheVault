@@ -14,7 +14,7 @@ The invariants are in [AGENTS.md](../AGENTS.md). This page lists what is enforce
 ## Unlock and recovery
 
 * The master-password **proof** is verified server-side before any ciphertext is released. Proofs are stored peppered (HMAC); compared in constant time.
-* Wrong proofs: four free, then lockout of 30 s doubling to 15 minutes, per person; per-IP limit of 20 attempts a minute; every failure and every lockout is audited and reaches SkyNet. `POST /vault/verify` (used before exports, new recovery keys, erasing) has the same throttle.
+* Wrong proofs: four free, then lockout of 30 s doubling to 15 minutes, per person; per-IP limit of 20 attempts a minute; every failure and every lockout is audited and reaches SkyNet. `POST /vault/verify` (used before exports, new recovery keys, erasing) and every other route that checks the master password has the same throttle, and checks are serialised per person so parallel guesses cannot race the lockout.
 * **Recovery**: five wrong recovery proofs lock recovery for an hour. Recovery ends all other sessions and issues a new recovery key.
 * Changing the master password ends all other sessions and extension devices.
 
@@ -44,7 +44,7 @@ See [extension.md](extension.md): explicit user action for every fill, exact-ori
 
 ## Administrators
 
-Administrators can: list people (counts, times), lock and unlock accounts, end sessions, erase a vault (typed confirmation), read the audit log, see SkyNet status. They **cannot** read, list or decrypt any item, and there is no route that could return one. Admin status is re-read from the session's SSO claims every five minutes, so demotion in ClosedDoor takes effect quickly.
+Administrators can: list people (counts, times), lock and unlock accounts, end sessions, erase a vault (typed confirmation), read the audit log, see SkyNet status. They **cannot** read, list or decrypt any item, and there is no route that could return one. Admin status is re-read from ClosedDoor every five minutes while the access token is valid, and **every admin route requires a fresh token**: once it has expired the role cannot be confirmed, so the admin must lock and unlock (which signs in again) first. Erasing a vault keeps other members' spaces: each is flagged for rotation, one left without an owner promotes its longest-standing member, and the erased person's public keys are retained so the wraps they made stay verifiable until the rotation.
 
 ## Audit events
 

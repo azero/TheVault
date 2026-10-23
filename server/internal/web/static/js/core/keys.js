@@ -90,6 +90,13 @@ export async function fingerprint(encPubB64, sigPubB64) {
   return toHex(h.subarray(0, 20)).match(/.{4}/g).join(' ')
 }
 
+/** The raw (uncompressed point) public key belonging to a PKCS#8 private key. WebCrypto cannot derive it directly. */
+async function publicFromPkcs8(pkcs8, alg, usages) {
+  const k = await subtle.importKey('pkcs8', pkcs8, alg, true, usages)
+  const jwk = await subtle.exportKey('jwk', k)
+  return b64uEncode(concat(Uint8Array.of(4), b64uDecode(jwk.x), b64uDecode(jwk.y)))
+}
+
 async function newKeyPairs(ukKey) {
   const [e, s] = await Promise.all([
     subtle.generateKey(ECDH, true, ['deriveBits']),
@@ -137,12 +144,19 @@ export class Keyring {
   static async fromUserKey(ukRaw, keys) {
     const uk = await aesKey(ukRaw)
     const [encP8, sigP8] = await Promise.all([open(uk, keys.enc_priv, AAD.encPriv), open(uk, keys.sig_priv, AAD.sigPriv)])
-    const [encPriv, sigPriv] = await Promise.all([
+    const [encPriv, sigPriv, encPub, sigPub] = await Promise.all([
       subtle.importKey('pkcs8', encP8, ECDH, false, ['deriveBits']),
       subtle.importKey('pkcs8', sigP8, ECDSA, false, ['sign']),
+      publicFromPkcs8(encP8, ECDH, ['deriveBits']),
+      publicFromPkcs8(sigP8, ECDSA, ['sign']),
     ])
     encP8.fill(0); sigP8.fill(0)
-    return new Keyring({ ukRaw: Uint8Array.from(ukRaw), uk, encPriv, sigPriv, encPub: keys.enc_pub, sigPub: keys.sig_pub })
+    // The public halves come from the private keys we just opened, never from what the server sent: a server that
+    // swapped them would otherwise show us a fingerprint of its own choosing and get space keys wrapped to itself.
+    if ((keys.enc_pub && keys.enc_pub !== encPub) || (keys.sig_pub && keys.sig_pub !== sigPub)) {
+      throw new VaultCryptoError('The server sent public keys that do not belong to this vault. Do not continue.')
+    }
+    return new Keyring({ ukRaw: Uint8Array.from(ukRaw), uk, encPriv, sigPriv, encPub, sigPub })
   }
 
   /** Open the user key with an already derived encryption key (so the KDF runs once per unlock). */

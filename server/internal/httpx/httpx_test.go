@@ -24,3 +24,13 @@ func TestClientIP(t *testing.T) {
 		t.Errorf("mapped IPv4: %s", got)
 	}
 }
+
+func TestClientIPUsesTheLastHeaderLine(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.2:5555"
+	r.Header.Add("X-Forwarded-For", "6.6.6.6") // client-supplied line
+	r.Header.Add("X-Forwarded-For", "1.1.1.1, 203.0.113.9")
+	if got := ClientIP(r, "X-Forwarded-For"); got != "203.0.113.9" {
+		t.Fatalf("ClientIP = %s, want the right-most entry of the last line", got)
+	}
+}

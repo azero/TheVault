@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -71,6 +72,9 @@ func serve() error {
 	go a.Run(ctx)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
+	if cfg.TrustedIPHeader == "" && strings.HasPrefix(cfg.PublicURL, "https://") {
+		log.Printf("warning: VAULT_PUBLIC_URL is https but VAULT_TRUSTED_IP_HEADER is empty; behind a reverse proxy every client will look like the proxy (rate limits, audit and SkyNet will see one address)")
+	}
 	log.Printf("thevault %s listening on %s, data in %s, skynet=%v extensions=%d", version, cfg.Listen, cfg.DataDir, a.Sky != nil, len(cfg.ExtensionIDs))
 	select {
 	case err := <-errc:

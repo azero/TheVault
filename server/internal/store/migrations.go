@@ -149,4 +149,13 @@ CREATE TABLE command_seen (
     seen_at INTEGER NOT NULL
 );
 `,
+	// v2: public keys of erased accounts, so wraps they made for other members stay verifiable until the space is rotated.
+	`
+CREATE TABLE retired_keys (
+    id         TEXT PRIMARY KEY,
+    enc_pub    TEXT NOT NULL,
+    sig_pub    TEXT NOT NULL,
+    retired_at INTEGER NOT NULL
+);
+`,
 }

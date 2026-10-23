@@ -30,7 +30,9 @@ services:
       # The host directory must be writable by uid 10002:  chown -R 10002:10002 /srv/thevault/data
       - ${VAULT_DATA_PATH:-/srv/thevault/data}:/data
     ports:
-      - "8444:8444"   # put your reverse proxy (Traefik/Caddy/nginx) in front; it terminates TLS
+      # Loopback by default: the reverse proxy (Traefik/Caddy/nginx) terminates TLS and must be the only way in, otherwise
+      # anyone could send their own X-Forwarded-For and choose the IP that rate limits, audit rows and SkyNet see.
+      - "${VAULT_BIND:-127.0.0.1}:8444:8444"
     read_only: true
     tmpfs:
       - /tmp

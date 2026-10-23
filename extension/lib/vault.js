@@ -2,9 +2,9 @@
 // storage.session. The decrypted index lives only in the service worker's memory (which Chrome discards when idle).
 import { b64uDecode, b64uEncode } from '../core/b64.js'
 import { aesKey, open } from '../core/crypto.js'
-import { Keyring, fingerprint } from '../core/keys.js'
+import { Keyring } from '../core/keys.js'
 import { decryptItem, spaceNameAad, PERSONAL } from '../core/item.js'
-import { unwrapSpaceKey } from '../core/share.js'
+import { resolveSharer, unwrapSpaceKey } from '../core/share.js'
 import { api } from './server.js'
 import { local, session } from './store.js'
 
@@ -29,6 +29,8 @@ export async function sync(full = false) {
   let cache = full ? { seq: 0, keyVersion: 1, items: {}, spaces: [], keys: (await loadCache()).keys } : await loadCache()
   for (;;) {
     const res = await api('GET', '/sync?since=' + cache.seq)
+    // An incremental sync only carries items that changed since `since`; a space we have just joined has older items.
+    if (!full && cache.seq > 0 && res.spaces.some((sp) => !cache.spaces.some((o) => o.id === sp.id))) return sync(true)
     cache.keyVersion = res.key_version
     cache.spaces = res.spaces
     for (const it of res.items) {
@@ -47,15 +49,8 @@ export async function sync(full = false) {
 }
 
 const trustKey = (sub) => 'trust:' + sub
-async function checkTrust(mySub, by, members) {
-  if (by === mySub) return
-  const m = members.find((x) => x.sub === by)
-  if (!m) throw new Error('The sharer is no longer a member.')
-  const fp = await fingerprint(m.enc_pub, m.sig_pub)
-  const t = (await local.get(trustKey(mySub))) ?? {}
-  if (t[by] && t[by] !== fp) throw new Error('The sharer’s keys changed. Verify their fingerprint in the web app.')
-  if (!t[by]) { t[by] = fp; await local.set({ [trustKey(mySub)]: t }) }
-}
+async function pinned(mySub, by) { return ((await local.get(trustKey(mySub))) ?? {})[by] }
+async function pin(mySub, by, fp) { const t = (await local.get(trustKey(mySub))) ?? {}; t[by] = fp; await local.set({ [trustKey(mySub)]: t }) }
 
 /** Decrypt everything the cache holds (login items only matter to the extension, but all types are listed for search). */
 export async function getIndex() {
@@ -67,15 +62,21 @@ export async function getIndex() {
   if (!cache.keys) throw new Error('No vault data on this device yet. Sign in and unlock while online.')
   const ring = await Keyring.fromUserKey(uk, cache.keys)
   const spaceKeys = new Map()
+  const seen = (await local.get('kv:' + mySub)) ?? {}
+  let seenChanged = false
   for (const s of cache.spaces) {
     try {
-      await checkTrust(mySub, s.wrap.by, s.members)
-      const raw = await unwrapSpaceKey({ spaceId: s.id, keyVersion: s.wrap_key_version, role: s.role, mySub, keyring: ring, wrap: s.wrap, sharerSigPub: s.wrap_by_sig_pub })
+      if ((seen[s.id] ?? 0) > s.key_version) continue // an older state than this device has seen: possible replay, not offered
+      const who = await resolveSharer({ space: s, mySub, keyring: ring, pinned: await pinned(mySub, s.wrap.by) })
+      const raw = await unwrapSpaceKey({ spaceId: s.id, keyVersion: s.wrap_key_version, mySub, keyring: ring, wrap: s.wrap, sharerSigPub: who.sigPub })
+      if (who.fp) await pin(mySub, s.wrap.by, who.fp)
       const key = await aesKey(raw)
       await open(key, s.name_blob, spaceNameAad(s.id, s.key_version)) // proves the key and the version are right
       spaceKeys.set(s.id, { key, version: s.key_version, writable: ['owner', 'editor'].includes(s.role), name: s.role })
+      if ((seen[s.id] ?? 0) < s.key_version) { seen[s.id] = s.key_version; seenChanged = true }
     } catch { /* a space we cannot open is simply not offered */ }
   }
+  if (seenChanged) await local.set({ ['kv:' + mySub]: seen })
   const out = []
   for (const it of Object.values(cache.items)) {
     if (it.deleted_at || it.purged) continue

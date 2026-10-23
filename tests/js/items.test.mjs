@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { aesKey, randomBytes } from '../../server/internal/web/static/js/core/crypto.js'
 import { createVault, Keyring } from '../../server/internal/web/static/js/core/keys.js'
 import { applyHistory, decryptItem, encryptItem, matchesQuery, newId, newItem, normalizeItem, ID_RE, MAX_BLOB_CHARS } from '../../server/internal/web/static/js/core/item.js'
-import { generateSpaceKey, unwrapSpaceKey, wrapSpaceKey } from '../../server/internal/web/static/js/core/share.js'
+import { generateSpaceKey, resolveSharer, unwrapSpaceKey, wrapSpaceKey } from '../../server/internal/web/static/js/core/share.js'
 
 const FAST = { iterations: 1000, minIterations: 1000 }
 const unlock = async (pw) => {
@@ -53,15 +53,14 @@ test('password history and search', () => {
   assert.ok(!matchesQuery(a, 'router nothing'))
 })
 
-test('space key sharing: round trip, wrong recipient, forged signature, altered role', async () => {
+test('space key sharing: round trip, wrong recipient, forged signature, replay', async () => {
   const alice = await unlock('alice-pass-1234'), bob = await unlock('bob-pass-1234'), mallory = await unlock('mallory-pass-123')
   const sk = generateSpaceKey()
-  const base = { spaceId: 'spc1', keyVersion: 1, role: 'editor', recipientSub: 'bob', recipientEncPub: bob.kr.encPub, sharerSub: 'alice', keyring: alice.kr, spaceKeyRaw: sk }
+  const base = { spaceId: 'spc1', keyVersion: 1, recipientSub: 'bob', recipientEncPub: bob.kr.encPub, sharerSub: 'alice', keyring: alice.kr, spaceKeyRaw: sk }
   const wrap = await wrapSpaceKey(base)
-  const common = { spaceId: 'spc1', keyVersion: 1, role: 'editor', mySub: 'bob', keyring: bob.kr, wrap, sharerSigPub: alice.kr.sigPub }
+  const common = { spaceId: 'spc1', keyVersion: 1, mySub: 'bob', keyring: bob.kr, wrap, sharerSigPub: alice.kr.sigPub }
   assert.deepEqual(await unwrapSpaceKey(common), sk)
   await assert.rejects(unwrapSpaceKey({ ...common, keyring: mallory.kr }), /decryption failed|signed/, 'someone else cannot open it')
-  await assert.rejects(unwrapSpaceKey({ ...common, role: 'owner' }), /not signed/, 'server escalating the role')
   await assert.rejects(unwrapSpaceKey({ ...common, keyVersion: 2 }), /not signed/)
   await assert.rejects(unwrapSpaceKey({ ...common, mySub: 'carol' }), /not signed/, 'wrap replayed to another user')
   await assert.rejects(unwrapSpaceKey({ ...common, sharerSigPub: mallory.kr.sigPub }), /not signed/, 'server substituting its own sharer key')
@@ -70,4 +69,45 @@ test('space key sharing: round trip, wrong recipient, forged signature, altered 
   // tampered ciphertext
   const t = { ...wrap, ct: wrap.ct.slice(0, -2) + (wrap.ct.endsWith('AA') ? 'BB' : 'AA') }
   await assert.rejects(unwrapSpaceKey({ ...common, wrap: t }), /not signed/)
+})
+
+test('the sharer key must match the pin, and the server cannot name a signing key of its own', async () => {
+  const alice = await unlock('alice-pass-1234'), bob = await unlock('bob-pass-1234'), mallory = await unlock('mallory-pass-123')
+  const sk = generateSpaceKey(), evilKey = generateSpaceKey()
+  const wrap = await wrapSpaceKey({ spaceId: 's1', keyVersion: 1, recipientSub: 'bob', recipientEncPub: bob.kr.encPub, sharerSub: 'alice', keyring: alice.kr, spaceKeyRaw: sk })
+  const members = [{ sub: 'alice', enc_pub: alice.kr.encPub, sig_pub: alice.kr.sigPub }]
+  const space = { id: 's1', wrap, members, wrap_by_enc_pub: alice.kr.encPub, wrap_by_sig_pub: alice.kr.sigPub }
+  const first = await resolveSharer({ space, mySub: 'bob', keyring: bob.kr, pinned: undefined })
+  assert.equal(first.sigPub, alice.kr.sigPub); assert.ok(first.fp, 'first contact: the caller pins')
+  const again = await resolveSharer({ space, mySub: 'bob', keyring: bob.kr, pinned: first.fp })
+  assert.equal(again.fp, null)
+  // a malicious server: genuine keys in members[] (so a naive check passes) but its own signing key on the wrap
+  const forgedWrap = await wrapSpaceKey({ spaceId: 's1', keyVersion: 1, recipientSub: 'bob', recipientEncPub: bob.kr.encPub, sharerSub: 'alice', keyring: mallory.kr, spaceKeyRaw: evilKey })
+  const lying = { ...space, wrap: forgedWrap, wrap_by_enc_pub: mallory.kr.encPub, wrap_by_sig_pub: mallory.kr.sigPub }
+  await assert.rejects(resolveSharer({ space: lying, mySub: 'bob', keyring: bob.kr, pinned: first.fp }), /changed|different key sets/)
+  const halfLying = { ...space, wrap: forgedWrap, wrap_by_sig_pub: mallory.kr.sigPub }
+  await assert.rejects(resolveSharer({ space: halfLying, mySub: 'bob', keyring: bob.kr, pinned: first.fp }), /different key sets|changed/)
+  // whatever resolveSharer returned, the forged wrap does not verify against the pinned key
+  await assert.rejects(unwrapSpaceKey({ spaceId: 's1', keyVersion: 1, mySub: 'bob', keyring: bob.kr, wrap: forgedWrap, sharerSigPub: first.sigPub }), /not signed/)
+  // a sharer who left (not in members[]) stays verifiable through their retired keys
+  const departed = { ...space, members: [] }
+  assert.equal((await resolveSharer({ space: departed, mySub: 'bob', keyring: bob.kr, pinned: first.fp })).sigPub, alice.kr.sigPub)
+  await assert.rejects(resolveSharer({ space: { ...departed, wrap_by_sig_pub: '' }, mySub: 'bob', keyring: bob.kr, pinned: first.fp }), /not available/)
+  // our own wraps use our own key, whatever the server says
+  const mine = await wrapSpaceKey({ spaceId: 's2', keyVersion: 1, recipientSub: 'bob', recipientEncPub: bob.kr.encPub, sharerSub: 'bob', keyring: bob.kr, spaceKeyRaw: sk })
+  const own = await resolveSharer({ space: { id: 's2', wrap: mine, members: [], wrap_by_sig_pub: mallory.kr.sigPub }, mySub: 'bob', keyring: bob.kr })
+  assert.equal(own.sigPub, bob.kr.sigPub)
+})
+
+test('public keys come from the private keys, not from the server', async () => {
+  const { payload } = await createVault('alice-pass-1234', FAST)
+  const other = await createVault('mallory-pass-123', FAST)
+  const kdf = { kdf: payload.kdf, iterations: payload.iterations, salt: payload.salt }
+  const ok = await Keyring.fromPassword('alice-pass-1234', kdf, payload, { minIterations: 1000 })
+  assert.equal(ok.encPub, payload.enc_pub); assert.equal(ok.sigPub, payload.sig_pub)
+  const swapped = { ...payload, enc_pub: other.payload.enc_pub, sig_pub: other.payload.sig_pub }
+  await assert.rejects(Keyring.fromPassword('alice-pass-1234', kdf, swapped, { minIterations: 1000 }), /do not belong/)
+  const noPub = { ...payload }; delete noPub.enc_pub; delete noPub.sig_pub
+  const derived = await Keyring.fromPassword('alice-pass-1234', kdf, noPub, { minIterations: 1000 })
+  assert.equal(derived.encPub, payload.enc_pub)
 })

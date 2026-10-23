@@ -42,13 +42,14 @@ type Space struct {
 	Role          string   `json:"role"`
 	Wrap          Wrap     `json:"wrap"`
 	WrapVersion   int      `json:"wrap_key_version"`
+	WrapByEncPub  string   `json:"wrap_by_enc_pub"`
 	WrapBySigPub  string   `json:"wrap_by_sig_pub"`
 	Members       []Member `json:"members"`
 }
 
 func spacesFor(ctx context.Context, tx *sql.Tx, sub string) ([]Space, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT s.id,s.name_blob,s.key_version,s.needs_rotation,s.created_by,s.created_at,m.role,m.wrap_eph,m.wrap_ct,m.wrap_sig,m.wrapped_by,m.key_version,COALESCE(vk.sig_pub,'')
-		FROM space_members m JOIN spaces s ON s.id = m.space_id LEFT JOIN vault_keys vk ON vk.sub = m.wrapped_by WHERE m.sub = ? ORDER BY s.created_at`, sub)
+	rows, err := tx.QueryContext(ctx, `SELECT s.id,s.name_blob,s.key_version,s.needs_rotation,s.created_by,s.created_at,m.role,m.wrap_eph,m.wrap_ct,m.wrap_sig,m.wrapped_by,m.key_version,COALESCE(vk.enc_pub,rk.enc_pub,''),COALESCE(vk.sig_pub,rk.sig_pub,'')
+		FROM space_members m JOIN spaces s ON s.id = m.space_id LEFT JOIN vault_keys vk ON vk.sub = m.wrapped_by LEFT JOIN retired_keys rk ON rk.id = m.wrapped_by WHERE m.sub = ? ORDER BY s.created_at`, sub)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func spacesFor(ctx context.Context, tx *sql.Tx, sub string) ([]Space, error) {
 	for rows.Next() {
 		var sp Space
 		var nr int
-		if err := rows.Scan(&sp.ID, &sp.NameBlob, &sp.KeyVersion, &nr, &sp.CreatedBy, &sp.CreatedAt, &sp.Role, &sp.Wrap.Eph, &sp.Wrap.CT, &sp.Wrap.Sig, &sp.Wrap.By, &sp.WrapVersion, &sp.WrapBySigPub); err != nil {
+		if err := rows.Scan(&sp.ID, &sp.NameBlob, &sp.KeyVersion, &nr, &sp.CreatedBy, &sp.CreatedAt, &sp.Role, &sp.Wrap.Eph, &sp.Wrap.CT, &sp.Wrap.Sig, &sp.Wrap.By, &sp.WrapVersion, &sp.WrapByEncPub, &sp.WrapBySigPub); err != nil {
 			rows.Close()
 			return nil, err
 		}

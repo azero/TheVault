@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/azero/thevault/server/internal/audit"
@@ -53,18 +54,21 @@ type Options struct {
 type Server struct {
 	Options
 	unlockRL *auth.Limiter // per IP
+	verifyRL *auth.Limiter // per IP, for the other routes that check the master password
 	apiRL    *auth.Limiter // per session
 	dirRL    *auth.Limiter
 	extRL    *auth.Limiter
 	loginRL  *auth.Limiter
 	noisy    *auth.Limiter // caps how often a repeating failure is reported to the audit log
 	cookie   string
+	proofMu  sync.Map // sub -> *sync.Mutex (see checkProof)
 }
 
 func New(o Options) *Server {
 	s := &Server{
 		Options:  o,
 		unlockRL: auth.NewLimiter(20, time.Minute),
+		verifyRL: auth.NewLimiter(40, time.Minute),
 		apiRL:    auth.NewLimiter(1500, time.Minute),
 		dirRL:    auth.NewLimiter(30, time.Minute),
 		extRL:    auth.NewLimiter(30, time.Minute),
@@ -200,6 +204,12 @@ func (s *Server) handle(mux *http.ServeMux, pattern string, n need, f handler) {
 		}
 		if n.admin && sess.Role != auth.RoleAdmin {
 			httpx.Error(w, http.StatusForbidden, "forbidden", "Administrators only.")
+			return
+		}
+		// The role was last confirmed with ClosedDoor while the access token was valid. Once it has expired we cannot
+		// tell whether this person was demoted or offboarded, so administration waits for a fresh sign-in.
+		if n.admin && time.Now().After(time.Unix(sess.TokenExpiry, 0).Add(-tokenSkew)) {
+			httpx.Error(w, http.StatusUnauthorized, "sso_expired", "Your ClosedDoor sign-in has expired. Lock and unlock the vault to sign in again.")
 			return
 		}
 		if n.unlocked {

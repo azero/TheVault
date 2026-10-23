@@ -133,16 +133,65 @@ func oneRow(res sql.Result, err error) error {
 }
 
 // EraseVault destroys a user's ciphertext and keys (admin action, or the user's own "delete my vault"). The ClosedDoor
-// identity stays; they can create a new vault. Spaces they created that still have other members are kept.
+// identity stays; they can create a new vault. Spaces that still have other members are kept, but the person knew their
+// keys, so every such space is flagged for rotation; one left without an owner promotes its longest-standing member
+// (roles are enforced by the server, so this gives that member no key they did not already hold). Wraps the erased user
+// made for others stay verifiable because their public keys are retired, not deleted.
 func (s *Store) EraseVault(ctx context.Context, sub string) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	var encPub, sigPub string
+	if err := tx.QueryRowContext(ctx, `SELECT enc_pub, sig_pub FROM vault_keys WHERE sub = ?`, sub).Scan(&encPub, &sigPub); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	} else if err == nil {
+		rid := "retired:" + RandomToken(12)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO retired_keys(id,enc_pub,sig_pub,retired_at) VALUES (?,?,?,?)`, rid, encPub, sigPub, time.Now().Unix()); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE space_members SET wrapped_by = ? WHERE wrapped_by = ?`, rid, sub); err != nil {
+			return err
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT space_id FROM space_members WHERE sub = ?`, sub)
+	if err != nil {
+		return err
+	}
+	var spaces []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		spaces = append(spaces, id)
+	}
+	rows.Close()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM space_members WHERE sub = ?`, sub); err != nil {
+		return err
+	}
+	for _, id := range spaces {
+		var left int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM space_members WHERE space_id = ?`, id).Scan(&left); err != nil {
+			return err
+		}
+		if left == 0 {
+			continue // swept below
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE spaces SET needs_rotation = 1 WHERE id = ?`, id); err != nil {
+			return err
+		}
+		if ownerCount(ctx, tx, id) == 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE space_members SET role = 'owner' WHERE space_id = ? AND sub = (
+				SELECT sub FROM space_members WHERE space_id = ? ORDER BY CASE role WHEN 'editor' THEN 0 ELSE 1 END, added_at, sub LIMIT 1)`, id, id); err != nil {
+				return err
+			}
+		}
+	}
 	stmts := []string{
 		`DELETE FROM items WHERE vault_id = 'personal' AND owner_sub = ?`,
-		`DELETE FROM space_members WHERE sub = ?`,
 		`DELETE FROM items WHERE vault_id IN (SELECT id FROM spaces WHERE id NOT IN (SELECT space_id FROM space_members))`,
 		`DELETE FROM spaces WHERE id NOT IN (SELECT space_id FROM space_members)`,
 		`DELETE FROM vault_keys WHERE sub = ?`,

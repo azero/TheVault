@@ -11,11 +11,12 @@ import (
 )
 
 // ClientIP returns the peer address, or the right-most entry of trustedHeader when the deployment sits behind a
-// proxy that sets it. Only the right-most entry is trusted: anything to its left is client-controlled.
+// proxy that sets it. Only the right-most entry of the last header line is trusted: a proxy appends to the end, and
+// anything before it (earlier entries, earlier header lines) is client-controlled.
 func ClientIP(r *http.Request, trustedHeader string) string {
 	if trustedHeader != "" {
-		if v := r.Header.Get(trustedHeader); v != "" {
-			parts := strings.Split(v, ",")
+		if vals := r.Header.Values(trustedHeader); len(vals) > 0 {
+			parts := strings.Split(vals[len(vals)-1], ",")
 			ip := strings.TrimSpace(parts[len(parts)-1])
 			if net.ParseIP(ip) != nil {
 				return NormalizeIP(ip)
