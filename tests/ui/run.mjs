@@ -339,6 +339,18 @@ await step('settings: account, security (change master password, new recovery ke
   await A.locator('.topbar').waitFor()
 })
 
+await step('locking closes open dialogs, so an export cannot finish after the vault locked', async () => {
+  await A.goto(stack.url + '/#/settings/data')
+  await A.getByRole('heading', { name: 'Export' }).waitFor()
+  await A.getByRole('button', { name: /Encrypted file/ }).click()
+  await A.getByRole('dialog').waitFor()
+  await A.keyboard.press('Alt+l')
+  await A.locator('#master').waitFor()
+  assert.equal(await A.locator('dialog[open]').count(), 0, 'a dialog survived the lock')
+  await unlockWith(A, pw)
+  await A.locator('.topbar').waitFor()
+})
+
 await step('import a CSV and export (encrypted and plain)', async () => {
   await A.goto(stack.url + '/#/settings/data')
   await A.getByRole('heading', { name: 'Import' }).waitFor()

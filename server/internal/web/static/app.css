@@ -185,6 +185,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 textarea.input { min-height: 6rem; resize: vertical; line-height: 1.5; }
 .input:focus { outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring); }
 .input.mono { font-family: var(--mono); }
+.input.masked { -webkit-text-security: disc; text-security: disc; }
 .input-group { display: flex; gap: .4rem; align-items: stretch; }
 .input-group .input { flex: 1; min-width: 0; }
 .check { display: flex; align-items: center; gap: .6rem; min-height: 1.75rem; cursor: pointer; }

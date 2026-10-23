@@ -12,6 +12,16 @@ import { parseUrl } from '../core/urlmatch.js'
 
 const SCOPES = ['all', 'fav', 'type', 'folder', 'space', 'trash']
 
+// A member can share an item with any text in the address field: show it without bidi/control characters, and link to the
+// address as the browser will parse it (userinfo tricks such as https://good.com\@evil.com resolve to what they really are).
+function siteLink(raw) {
+  const shown = String(raw).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+  let url
+  try { url = new URL(/^https?:\/\//i.test(shown) ? shown : 'https://' + shown) } catch { return h('span', {}, shown) }
+  if (url.username || url.password) return h('span', {}, shown, ' ', h('span', { class: 'badge badge-danger' }, 'Contains a login: not linked'))
+  return h('a', { href: url.href, target: '_blank', rel: 'noopener noreferrer' }, shown)
+}
+
 export function scopeOf(route) {
   const [a, b] = route.seg
   if (!a || a === 'all') return { kind: 'all', title: 'All items' }
@@ -148,7 +158,7 @@ function detailView(ctx, e, scope) {
   for (const c of it.custom) fields.append(fieldRow({ label: c.label || 'Field', value: c.value, secret: c.hidden }))
   if (it.urls.length) {
     fields.append(h('div', { class: 'fld' }, h('div', { class: 'body' }, h('div', { class: 'k' }, it.urls.length > 1 ? 'Websites' : 'Website'),
-      ...it.urls.map((u) => h('div', { class: 'v' }, h('a', { href: /^https?:\/\//i.test(u.url) ? u.url : 'https://' + u.url, target: '_blank', rel: 'noopener noreferrer' }, u.url), ' ', h('span', { class: 'badge' }, MATCH_MODES[u.match] ?? '')))), h('div', { class: 'acts' })))
+      ...it.urls.map((u) => h('div', { class: 'v' }, siteLink(u.url), ' ', h('span', { class: 'badge' }, MATCH_MODES[u.match] ?? '')))), h('div', { class: 'acts' })))
   }
   if (it.notes) fields.append(fieldRow({ label: 'Notes', value: it.notes, pre: true, copyLabel: undefined }))
   if (fields.children.length) wrap.append(h('div', { class: 'card' }, fields))

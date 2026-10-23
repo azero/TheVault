@@ -1,7 +1,7 @@
 // Entry point: decides between setup, unlock and the application.
 import { h, mount } from './dom.js'
 import { onApiEvent } from './api.js'
-import { vault, loadSession, serverLocked, subscribe, wipe } from './vault.js'
+import { vault, onBroadcast, loadSession, serverLocked, subscribe, wipe } from './vault.js'
 import { setupView, unlockView } from './auth.js'
 import { startShell } from './shell.js'
 import { startIdle, stopIdle } from './idle.js'
@@ -29,6 +29,7 @@ function goSignIn(message) {
 
 onApiEvent('signedOut', (err) => goSignIn(err.code === 'session_revoked' ? 'Your access was removed in ClosedDoor.' : 'Your session ended. Sign in again.'))
 onApiEvent('locked', () => { serverLocked() })
+onBroadcast((kind) => { if (kind === 'lock') serverLocked(); else if (kind === 'signout') { wipe(); location.assign('/login') } })
 subscribe((what) => { if (what === 'lock' || what === 'unlock') render() })
 
 async function boot() {

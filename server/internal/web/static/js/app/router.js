@@ -9,7 +9,7 @@ export function parse(hash = location.hash) {
   let itemId = null
   const m = /^(.*)\/item\/([0-9a-f]{32})$/.exec(path)
   if (m) { path = m[1] || '/all'; itemId = m[2] }
-  const seg = path.split('/').filter(Boolean).map(decodeURIComponent)
+  const seg = path.split('/').filter(Boolean).map((s) => { try { return decodeURIComponent(s) } catch { return s } })
   return { path, seg, query, itemId, raw }
 }
 

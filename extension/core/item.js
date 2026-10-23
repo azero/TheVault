@@ -66,7 +66,7 @@ export const MATCH_MODES = {
 }
 
 export function newItem(type = 'login') {
-  if (!TYPES[type]) throw new RangeError('unknown item type')
+  if (!Object.hasOwn(TYPES, type)) throw new RangeError('unknown item type')
   const now = Date.now()
   return { v: 1, type, name: '', fav: false, folder: '', tags: [], notes: '', urls: [], data: {}, custom: [], history: [], created: now, updated: now }
 }
@@ -75,7 +75,7 @@ const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '')
 
 /** Defensive normaliser for anything decrypted or imported: unknown keys dropped, types forced, lengths capped. */
 export function normalizeItem(raw) {
-  const type = TYPES[raw?.type] ? raw.type : 'note'
+  const type = Object.hasOwn(TYPES, raw?.type) ? raw.type : 'note'
   const it = newItem(type)
   it.name = str(raw.name, 200)
   it.fav = raw.fav === true
@@ -83,7 +83,7 @@ export function normalizeItem(raw) {
   it.tags = Array.isArray(raw.tags) ? raw.tags.slice(0, 20).map((t) => str(t, 40)).filter(Boolean) : []
   it.notes = str(raw.notes, 20000)
   it.urls = Array.isArray(raw.urls)
-    ? raw.urls.slice(0, 10).map((u) => ({ url: str(u?.url, 2000), match: MATCH_MODES[u?.match] ? u.match : 'host' })).filter((u) => u.url)
+    ? raw.urls.slice(0, 10).map((u) => ({ url: str(u?.url, 2000), match: Object.hasOwn(MATCH_MODES, u?.match) ? u.match : 'host' })).filter((u) => u.url)
     : []
   for (const f of TYPES[type].fields) it.data[f.key] = str(raw.data?.[f.key], f.kind === 'multiline-secret' ? 20000 : 2000)
   it.custom = Array.isArray(raw.custom)

@@ -35,7 +35,7 @@ The browser test asserts that none of `chrome.storage.local` contains a password
 ## Autofill rules
 
 1. **Only on an explicit action**: clicking *Fill* in the popup, the context menu, or `Ctrl+Shift+L` / `Cmd+Shift+L`. Nothing fills on page load. There is no inline icon on web pages.
-2. **Exact match** of the saved website rules (`core/urlmatch.js`): *same host* (default), *host and subdomains* (the host you saved is the boundary; bare TLDs and IP addresses never expand), *exact address (path prefix)*, or *never*. `paypal.com.evil.io`, `evilpaypal.com`, `paypal.com@evil.io`, other ports, other schemes and punycode look-alikes do not match (tested).
+2. **Exact match** of the saved website rules (`core/urlmatch.js`): *same host* (default), *host and subdomains* (the host you saved is the boundary; bare TLDs, IP addresses and shared suffixes such as `co.uk` or `github.io` never expand), *exact address (path prefix on a `/` boundary: `/app` covers `/app/x`, not `/apple`)*, or *never*. `paypal.com.evil.io`, `evilpaypal.com`, `paypal.com@evil.io`, other ports (an https rule never meets `:80`), other schemes and punycode look-alikes do not match (tested).
 3. **https only** (plus `http://localhost`, `127.0.0.1`, `[::1]`). A saved `https://` rule never matches an `http://` page.
 4. **Page and frame must both match.** The service worker enumerates the tab's frames and fills only frames whose own address matches *and* only when the top-level page matches too: a trusted login embedded in a hostile page, or a hostile frame inside a trusted page, gets nothing. The message goes to a specific `documentId`, so a navigation between the check and the fill cannot redirect it.
 5. **Visible fields only**: not `display:none`, not `visibility:hidden`, not near-transparent, not pushed off-screen, not tiny, not disabled/read-only (honeypot test).
@@ -45,11 +45,11 @@ The browser test asserts that none of `chrome.storage.local` contains a password
 
 ## Saving logins
 
-A passive listener notices submits (`submit` event, clicking a submit button, Enter) on forms with a password, and reports `{username, password}` to the service worker for that instant only. If the login is new, or the username exists with a different password, a prompt is stored (120 s) and a bar is shown in the page after the next load (or 1.2 s later for single-page apps): *Save* / *Not now* / *Never for this site*. The bar is built in a **closed shadow root**, ignores synthetic (`isTrusted: false`) clicks, and needs the vault unlocked. It saves to the personal vault, encrypted with the user key, with the origin as a *same host* rule.
+A passive listener notices submits (`submit` event, clicking a submit button, Enter) on forms with a password, and reports `{username, password}` to the service worker for that instant only. If the login is new, or the username exists with a different password, a prompt is stored (120 s) and a bar is shown in the page after the next load (or 1.2 s later for single-page apps): *Save* / *Not now* / *Never for this site*. Only a password the person typed counts: a value written by page script is never offered, and TheVault's own pages (unlock, dialogs, the editor) are never captured. The bar is built in a **closed shadow root** with inline `!important` styles, ignores synthetic (`isTrusted: false`) clicks, and ignores *real* clicks unless it is demonstrably visible (IntersectionObserver v2, computed opacity/transform/filter, under the pointer) and has been on screen for 700 ms, so a page cannot hide it and put a decoy button underneath. It needs the vault unlocked. It saves to the personal vault, encrypted with the user key, with the origin as a *same host* rule.
 
 ## Locking
 
-Locks after the idle time set in *Settings* (default 15 min, also enforced by the server), when the screen locks, and when the browser closes (the key is in session storage). Locking removes the key and the decrypted index immediately.
+Locks after the idle time set in *Settings* (default 15 min, also enforced by the server), when the screen locks, and when the browser closes (the key is in session storage). Locking removes the key, the decrypted index and any pending save prompt immediately. The idle check runs on every worker wake-up and before every use of the index, not only on the one-minute alarm (a restarted worker must not postpone it), and the index is only served while the key exists, so a server-side lock or a revoked session stops fills at once.
 
 ## Offline
 

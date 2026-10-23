@@ -1,7 +1,7 @@
 // The signed-in, unlocked application: top bar, sidebar, routed content.
 import { h, icon, mount, avatarClass, initials, debounce, toast } from './dom.js'
 import { post } from './api.js'
-import { vault, lock, counts, folders, isAdmin, subscribe, spaceName } from './vault.js'
+import { vault, broadcast, lock, counts, folders, isAdmin, subscribe, spaceName } from './vault.js'
 import { navigate, onRoute, parse, href } from './router.js'
 import { TYPES } from '../core/item.js'
 import { prefs, applyTheme } from './prefs.js'
@@ -37,7 +37,7 @@ export function startShell(root) {
     h('button', { type: 'button', role: 'menuitem', on: { click: theme } }, icon('sun'), 'Switch theme'),
     h('button', { type: 'button', role: 'menuitem', on: { click: () => { closeMenu(); lock() } } }, icon('lock'), 'Lock vault'),
     h('hr'),
-    h('button', { type: 'button', role: 'menuitem', on: { click: async () => { try { const r = await post('/session/logout'); location.assign(r.redirect) } catch { location.assign('/login') } } } }, icon('logout'), 'Sign out'))
+    h('button', { type: 'button', role: 'menuitem', on: { click: async () => { broadcast('signout'); try { const r = await post('/session/logout'); location.assign(r.redirect || '/login') } catch { location.assign('/login') } } } }, icon('logout'), 'Sign out'))
   acctBtn.addEventListener('click', () => {
     const open = menu.classList.toggle('hidden') === false
     acctBtn.setAttribute('aria-expanded', String(open))

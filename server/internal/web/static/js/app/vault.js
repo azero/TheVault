@@ -7,6 +7,8 @@ import { b64uEncode, utf8 } from '../core/b64.js'
 import { PERSONAL, TYPES, applyHistory, decryptItem, encryptItem, matchesQuery, newId, newItem, normalizeItem, spaceNameAad } from '../core/item.js'
 import { generateSpaceKey, resolveSharer, unwrapSpaceKey, wrapSpaceKey } from '../core/share.js'
 import { aesKey } from '../core/crypto.js'
+import { closeAllDialogs } from './dialog.js'
+import { forgetClipboard } from './clipboard.js'
 
 const listeners = new Set()
 export const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn) }
@@ -69,6 +71,8 @@ export async function unlock(password) {
 }
 
 export function wipe() {
+  closeAllDialogs()
+  forgetClipboard()
   proofCache = null
   vault.keyring?.wipe()
   for (const sp of vault.spaces.values()) sp.keyRaw?.fill(0)
@@ -78,8 +82,14 @@ export function wipe() {
   vault.seq = 0
 }
 
+// Other tabs of the same browser profile hold their own decrypted copy: tell them to lock or sign out too.
+const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('thevault') : null
+export const broadcast = (kind) => { try { channel?.postMessage(kind) } catch { /* ignore */ } }
+export const onBroadcast = (fn) => { if (channel) channel.onmessage = (e) => fn(e.data) }
+
 export async function lock({ remote = true } = {}) {
   wipe()
+  if (remote) broadcast('lock')
   if (remote) { try { await post('/vault/lock') } catch { /* already locked or signed out */ } }
   try { await loadSession() } catch { /* signed out */ }
   notify('lock')

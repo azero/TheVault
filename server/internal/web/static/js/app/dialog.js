@@ -1,10 +1,15 @@
 import { h, icon } from './dom.js'
 
 /** Modal built on <dialog>: focus trap, Esc to close and backdrop come from the platform. */
+const open = new Set()
+/** Locking or signing out must take every open dialog with it (an export dialog left open would outlive the keys). */
+export function closeAllDialogs() { for (const close of [...open]) close() }
+
 export function modal({ title, body, actions }) {
   return new Promise((resolve) => {
     const dlg = h('dialog', { 'aria-labelledby': 'dlg-title' })
-    const done = (v) => { if (dlg.open) dlg.close(); dlg.remove(); resolve(v) }
+    const done = (v) => { open.delete(done); if (dlg.open) dlg.close(); dlg.remove(); resolve(v) }
+    open.add(done)
     dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(undefined) })
     dlg.addEventListener('click', (e) => { if (e.target === dlg) done(undefined) })
     const foot = h('div', { class: 'dlg-foot' }, actions(done))

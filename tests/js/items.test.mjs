@@ -111,3 +111,9 @@ test('public keys come from the private keys, not from the server', async () => 
   const derived = await Keyring.fromPassword('alice-pass-1234', kdf, noPub, { minIterations: 1000 })
   assert.equal(derived.encPub, payload.enc_pub)
 })
+
+test('inherited object keys are not item types or match modes', () => {
+  assert.equal(normalizeItem({ type: 'constructor', name: 'x' }).type, 'note')
+  assert.equal(normalizeItem({ type: '__proto__', name: 'x' }).type, 'note')
+  assert.equal(normalizeItem({ type: 'login', name: 'x', urls: [{ url: 'https://a.example', match: 'constructor' }] }).urls[0].match, 'host')
+})

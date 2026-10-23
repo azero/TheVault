@@ -79,9 +79,14 @@
   // ---------- noticing a login so it can be saved ----------
 
   let lastSent = ''
+  // Only a password the person typed (or the browser filled) counts. A page that writes a value from script, then waits
+  // for a click on its own button, must not be able to get a "save this login?" prompt out of us.
+  const typed = new WeakSet()
+  document.addEventListener('input', (e) => { if (e.isTrusted && e.target instanceof HTMLInputElement && e.target.type === 'password') typed.add(e.target) }, true)
+
   function captureFrom(form) {
     const scope = form ?? document
-    const pws = [...scope.querySelectorAll('input[type="password"]')].filter((p) => p.value)
+    const pws = [...scope.querySelectorAll('input[type="password"]')].filter((p) => p.value && typed.has(p))
     if (!pws.length) return
     const fresh = pws.filter((p) => /new-password/i.test(p.autocomplete))
     const pw = fresh[0] ?? pws[0]
@@ -115,6 +120,8 @@
     if (!info) return
     const host = document.createElement('div')
     host.setAttribute('data-thevault', '')
+    // inline !important beats any page stylesheet rule aimed at [data-thevault]
+    for (const [k, v] of [['all', 'initial'], ['display', 'block'], ['opacity', '1'], ['visibility', 'visible'], ['filter', 'none'], ['transform', 'none'], ['clip-path', 'none'], ['mix-blend-mode', 'normal']]) host.style.setProperty(k, v, 'important')
     const root = host.attachShadow({ mode: 'closed' }) // page scripts cannot reach inside
     const css = new CSSStyleSheet()
     css.replaceSync(`
@@ -148,7 +155,28 @@
       if (r?.data?.ok || action === 'dismiss' || action === 'never') return close()
       msg.textContent = r?.data?.message || r?.error?.message || 'That did not work.'
     }
-    const btn = (label, action, cls) => { const b = el('button', { type: 'button', className: cls || '', textContent: label }); b.addEventListener('click', (ev) => { if (ev.isTrusted) act(action) }); return b }
+    // A real click on a bar the person cannot see (opacity 0, covered, moved) must not count as consent: the page could
+    // have put a decoy button under it. The bar must be demonstrably visible and under the pointer, and have been on screen
+    // for a moment.
+    let shownAt = 0, seen = !('isVisible' in IntersectionObserverEntry.prototype)
+    const genuinelyVisible = (ev) => {
+      if (Date.now() - shownAt < 700 || !seen) return false
+      for (let n = host; n; n = n.parentElement) {
+        const cs = getComputedStyle(n)
+        if (cs.display === 'none' || cs.visibility !== 'visible' || parseFloat(cs.opacity) < 1 || cs.filter !== 'none' || cs.transform !== 'none' || cs.clipPath !== 'none') return false
+      }
+      // a keyboard activation (detail 0) has no pointer position; the visibility checks above still apply to it
+      return ev.detail === 0 || document.elementFromPoint(ev.clientX, ev.clientY) === host
+    }
+    const btn = (label, action, cls) => {
+      const b = el('button', { type: 'button', className: cls || '', textContent: label })
+      b.addEventListener('click', (ev) => {
+        if (!ev.isTrusted) return
+        if (action === 'dismiss' || genuinelyVisible(ev)) act(action)
+        else msg.textContent = 'This bar was hidden or covered by the page, so the click was ignored. Use the toolbar icon instead.'
+      })
+      return b
+    }
     const close = () => { host.remove(); bar = null }
     const verb = info.kind === 'update' ? 'Update the password for' : 'Save the login for'
     root.append(el('div', { className: 'bar', role: 'alertdialog', ariaLabel: 'TheVault: save this login?' },
@@ -158,6 +186,11 @@
       info.locked ? el('div', { className: 'msg', textContent: 'TheVault is locked: click the toolbar icon to unlock, then press Save.' }) : null, msg))
     bar = host
     document.documentElement.append(host)
+    shownAt = Date.now()
+    if (!seen) {
+      const io = new IntersectionObserver((es) => { for (const e of es) seen = e.isIntersecting && e.isVisible === true }, { threshold: 0.99, trackVisibility: true, delay: 100 })
+      io.observe(root.querySelector('.bar'))
+    }
     setTimeout(() => { if (bar === host) close() }, 45000)
   }
 

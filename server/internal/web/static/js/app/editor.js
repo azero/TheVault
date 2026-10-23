@@ -35,13 +35,15 @@ export function editorView(ctx, { mode, id, type, vaultId }) {
   }
 
   function secretField(f) {
-    const input = h('input', { class: 'input mono', id: 'f-' + f.key, type: 'password', value: item.data[f.key] ?? '', autocomplete: 'new-password', spellcheck: 'false', on: { input: (e) => { item.data[f.key] = e.target.value; touch(); meter?.update() } } })
-    const eye = h('button', { class: 'btn btn-icon', type: 'button', 'aria-label': 'Show ' + f.label.toLowerCase(), 'aria-pressed': 'false', on: { click: () => { const show = input.type === 'password'; input.type = show ? 'text' : 'password'; eye.setAttribute('aria-pressed', String(show)); eye.replaceChildren(icon(show ? 'eye-off' : 'eye')) } } }, icon('eye'))
+    // type=text with a CSS mask: a real password field makes Chrome offer to save API keys and card numbers in the browser's own
+    // (cloud-synced) password manager when the form is "submitted"
+    const input = h('input', { class: 'input mono masked', id: 'f-' + f.key, type: 'text', value: item.data[f.key] ?? '', autocomplete: 'off', spellcheck: 'false', 'data-lpignore': 'true', 'data-1p-ignore': 'true', 'data-bwignore': 'true', on: { input: (e) => { item.data[f.key] = e.target.value; touch(); meter?.update() } } })
+    const eye = h('button', { class: 'btn btn-icon', type: 'button', 'aria-label': 'Show ' + f.label.toLowerCase(), 'aria-pressed': 'false', on: { click: () => { const show = input.classList.contains('masked'); input.classList.toggle('masked', !show); eye.setAttribute('aria-pressed', String(show)); eye.replaceChildren(icon(show ? 'eye-off' : 'eye')) } } }, icon('eye'))
     const pop = h('div', { class: 'popover hidden', role: 'dialog', 'aria-label': 'Password generator' })
     const genBtn = f.generator ? h('button', { class: 'btn btn-icon', type: 'button', 'aria-label': 'Generate a password', 'aria-expanded': 'false', title: 'Generate', on: { click: () => {
       const open = pop.classList.toggle('hidden') === false
       genBtn.setAttribute('aria-expanded', String(open))
-      if (open) { pop.replaceChildren(generatorPanel({ onUse: (pw) => { input.value = pw; item.data[f.key] = pw; input.type = 'text'; touch(); meter?.update(); pop.classList.add('hidden'); genBtn.setAttribute('aria-expanded', 'false'); input.focus() } }).el) }
+      if (open) { pop.replaceChildren(generatorPanel({ onUse: (pw) => { input.value = pw; item.data[f.key] = pw; input.classList.remove('masked'); touch(); meter?.update(); pop.classList.add('hidden'); genBtn.setAttribute('aria-expanded', 'false'); input.focus() } }).el) }
     } } }, icon('wand')) : null
     const meter = item.type === 'login' && f.key === 'password' ? strengthMeter(() => input.value) : null
     return h('div', { class: 'field' }, h('label', { class: 'label', for: 'f-' + f.key }, f.label), h('div', { class: 'pop' }, h('div', { class: 'input-group' }, input, eye, genBtn), pop), meter?.el)
@@ -63,8 +65,8 @@ export function editorView(ctx, { mode, id, type, vaultId }) {
   function customEditor() {
     const wrap = h('div', {})
     const draw = () => wrap.replaceChildren(...item.custom.map((c, i) => h('div', { class: 'cf-row' },
-      h('input', { class: 'input', 'aria-label': 'Field name', value: c.label, placeholder: 'Name', on: { input: (e) => { c.label = e.target.value; touch() } } }),
-      h('input', { class: 'input', 'aria-label': 'Field value', type: c.hidden ? 'password' : 'text', value: c.value, placeholder: 'Value', autocomplete: 'off', on: { input: (e) => { c.value = e.target.value; touch() } } }),
+      h('input', { class: 'input', 'aria-label': 'Field name', spellcheck: 'false', value: c.label, placeholder: 'Name', on: { input: (e) => { c.label = e.target.value; touch() } } }),
+      h('input', { class: 'input' + (c.hidden ? ' masked' : ''), 'aria-label': 'Field value', type: 'text', value: c.value, placeholder: 'Value', autocomplete: 'off', spellcheck: 'false', 'data-lpignore': 'true', 'data-1p-ignore': 'true', on: { input: (e) => { c.value = e.target.value; touch() } } }),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: c.hidden, on: { change: (e) => { c.hidden = e.target.checked; touch(); draw() } } }), 'Hide'),
       h('button', { class: 'btn btn-ghost btn-icon', type: 'button', 'aria-label': 'Remove field', on: { click: () => { item.custom.splice(i, 1); touch(); draw() } } }, icon('x')))),
     h('button', { class: 'btn btn-sm', type: 'button', on: { click: () => { item.custom.push({ label: '', value: '', hidden: false }); touch(); draw() } } }, icon('plus', 'icon-sm'), 'Add custom field'))
@@ -88,7 +90,7 @@ export function editorView(ctx, { mode, id, type, vaultId }) {
       else parts.push(text('f-' + f.key, f.label, item.data[f.key], (v) => { item.data[f.key] = v }, { placeholder: f.placeholder, autocomplete: f.key === 'username' ? 'off' : 'off' }).el)
     }
     if (t().urls) parts.push(urlsEditor())
-    parts.push(h('div', { class: 'field' }, h('label', { class: 'label', for: 'f-notes' }, 'Notes'), h('textarea', { class: 'input', id: 'f-notes', rows: 4, value: item.notes, on: { input: (e) => { item.notes = e.target.value; touch() } } })))
+    parts.push(h('div', { class: 'field' }, h('label', { class: 'label', for: 'f-notes' }, 'Notes'), h('textarea', { class: 'input', id: 'f-notes', rows: 4, spellcheck: 'false', value: item.notes, on: { input: (e) => { item.notes = e.target.value; touch() } } })))
     parts.push(customEditor())
     const fl = folders().map(([n]) => n)
     parts.push(h('div', { class: 'row' },

@@ -57,3 +57,18 @@ test('matchItems sorts by score, then favourites', () => {
   const out = matchItems([mk('sub', 'https://a.com', 'domain'), mk('exact', 'https://www.a.com/x', 'exact'), mk('host', 'https://www.a.com', 'host', true), mk('other', 'https://b.com', 'host')], 'https://www.a.com/x/y')
   assert.deepEqual(out.map((i) => i.name), ['exact', 'host', 'sub'])
 })
+
+test('ports, path boundaries and shared suffixes', () => {
+  const m = (url, page, match = 'host') => matchScore({ url, match }, page)
+  assert.equal(m('https://example.com', 'https://example.com:80/'), 0, 'a TLS rule never meets another service on :80')
+  assert.equal(m('http://localhost', 'http://localhost:443'), 0)
+  assert.equal(m('https://example.com:80', 'https://example.com/'), 0)
+  assert.ok(m('http://example.com', 'https://example.com/') > 0, 'an old http rule still meets the https site')
+  assert.equal(m('https://example.com/app', 'https://example.com/apple', 'exact'), 0)
+  assert.equal(m('https://example.com/app', 'https://example.com/app-evil/x', 'exact'), 0)
+  assert.ok(m('https://example.com/app', 'https://example.com/app', 'exact') > 0)
+  assert.ok(m('https://example.com/app', 'https://example.com/app/x', 'exact') > 0)
+  assert.equal(m('https://github.io', 'https://evil.github.io/', 'domain'), 0, 'a domain rule on a shared suffix would cover every tenant')
+  assert.equal(m('https://co.uk', 'https://evil.co.uk/', 'domain'), 0)
+  assert.ok(m('https://example.co.uk', 'https://app.example.co.uk/', 'domain') > 0)
+})

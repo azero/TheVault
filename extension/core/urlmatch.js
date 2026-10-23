@@ -36,15 +36,25 @@ export function matchScore(rule, pageUrl) {
   // A saved https rule never matches an http page; a saved http rule matches only http or https of the same host.
   if (saved.scheme === 'https' && page.scheme !== 'https') return 0
   const mode = rule.match || 'host'
-  const portsOk = saved.port === page.port || isDefaultPair(saved, page)
-  if (!portsOk) return 0
-  if (mode === 'exact') return saved.host === page.host && page.path.startsWith(saved.path) ? 4 : 0
+  if (saved.port !== page.port && !upgradedDefaults(saved, page)) return 0
+  if (mode === 'exact') return saved.host === page.host && pathWithin(saved.path, page.path) ? 4 : 0
   if (saved.host === page.host) return 3
-  if (mode === 'domain' && !isIp(saved.host) && saved.host.includes('.') && page.host.endsWith('.' + saved.host)) return 2
+  if (mode === 'domain' && !isIp(saved.host) && saved.host.includes('.') && !SHARED_SUFFIXES.has(saved.host) && page.host.endsWith('.' + saved.host)) return 2
   return 0
 }
 
-const isDefaultPair = (a, b) => (a.port === '80' || a.port === '443') && (b.port === '80' || b.port === '443')
+// The only scheme change we allow is an http rule meeting the https site on the same host: 80 -> 443. Any other pairing of
+// the two default ports (an https rule on :80, an http rule on :443) is a different service.
+const upgradedDefaults = (saved, page) => saved.scheme === 'http' && page.scheme === 'https' && saved.port === '80' && page.port === '443'
+
+/** `/app` covers `/app` and `/app/...`, never `/apple`. */
+const pathWithin = (saved, page) => page === saved || page.startsWith(saved.endsWith('/') ? saved : saved + '/')
+
+// Suffixes under which unrelated parties get their own subdomain. A "domain" rule on one of these would hand a login to every
+// tenant. (A full public-suffix list is too big to ship; this covers the common multi-part and hosting suffixes.)
+const SHARED_SUFFIXES = new Set(`co.uk org.uk ac.uk gov.uk me.uk ltd.uk plc.uk com.au net.au org.au edu.au gov.au co.nz org.nz net.nz co.jp ne.jp or.jp ac.jp co.kr co.in net.in org.in com.br com.cn com.mx com.ar com.tr com.sg com.hk co.za co.il
+github.io gitlab.io herokuapp.com vercel.app netlify.app pages.dev workers.dev web.app firebaseapp.com appspot.com azurewebsites.net cloudfront.net amazonaws.com s3.amazonaws.com elasticbeanstalk.com
+blogspot.com wordpress.com myshopify.com onrender.com fly.dev repl.co glitch.me ngrok.io ngrok-free.app trycloudflare.com surge.sh render.com railway.app deno.dev netlify.com weebly.com wixsite.com squarespace.com`.split(/\s+/))
 
 /** Items offered for `pageUrl`, best first. `items` are decrypted items with an `id`. */
 export function matchItems(items, pageUrl) {

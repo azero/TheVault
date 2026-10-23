@@ -9,8 +9,9 @@ import { api } from './server.js'
 import { local, session } from './store.js'
 
 let index = null // [{ id, vaultId, seq, item, writable }]
+let generation = 0 // bumped by every drop, so a build that was running during a lock is discarded
 
-export const dropIndex = () => { index = null }
+export const dropIndex = () => { index = null; generation++ }
 
 export async function getUnlockKey() {
   const b = await session.get('uk')
@@ -54,7 +55,10 @@ async function pin(mySub, by, fp) { const t = (await local.get(trustKey(mySub)))
 
 /** Decrypt everything the cache holds (login items only matter to the extension, but all types are listed for search). */
 export async function getIndex() {
+  // The key is the authority: a server-side lock, a 401 or a revoked session removes it without touching the index.
+  if (!(await isUnlocked())) { dropIndex(); return null }
   if (index) return index
+  const gen = generation
   const uk = await getUnlockKey()
   if (!uk) return null
   const cache = await loadCache()
@@ -87,6 +91,7 @@ export async function getIndex() {
     } catch { /* undecryptable: skip */ }
   }
   ring.wipe()
+  if (gen !== generation || !(await isUnlocked())) return null
   index = out
   return out
 }

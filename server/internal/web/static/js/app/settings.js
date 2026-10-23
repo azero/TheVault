@@ -181,16 +181,19 @@ async function data() {
 
   const scope = h('select', { class: 'input', id: 'exp-scope' }, h('option', { value: 'all' }, 'Everything I can see'), h('option', { value: 'personal' }, 'Personal items only'), ...[...vault.spaces.values()].map((s) => h('option', { value: s.id }, 'Space: ' + s.name)))
   const exp = (kind) => async () => {
-    const items = exportable(scope.value)
-    if (!items.length) { toast('Nothing to export', 'error'); return }
+    if (!exportable(scope.value).length) { toast('Nothing to export', 'error'); return }
+    // The plaintext is gathered only after the dialog returns, from live state: locking while it was open closes it, and an
+    // unlocked vault is required to get anything at all.
+    const gather = () => (vault.keyring ? exportable(scope.value) : [])
+    let items = []
     if (kind === 'enc') {
       const pw = await passwordDialog({ title: 'Protect the export', body: 'Choose a password for the export file. You can use your master password or a different one.', confirm: 'Export' })
-      if (!pw) return
+      if (!pw || !(items = gather()).length) return
       download(`thevault-export-${new Date().toISOString().slice(0, 10)}.json`, await exportEncrypted(items, pw), 'application/json')
       reportClientEvent('vault_export_encrypted', items.length)
     } else {
       const pw = await passwordDialog({ title: 'Export unencrypted data', body: h('span', {}, h('strong', {}, 'The file will contain every password in plain text. '), 'Delete it as soon as you have used it. Enter your master password to continue.'), confirm: 'Export', danger: true, verify: verifyPassword })
-      if (!pw) return
+      if (!pw || !(items = gather()).length) return
       if (kind === 'csv') download(`thevault-export-${new Date().toISOString().slice(0, 10)}.csv`, exportCsv(items), 'text/csv')
       else download(`thevault-export-${new Date().toISOString().slice(0, 10)}.json`, exportJson(items), 'application/json')
       reportClientEvent('vault_export', items.length)

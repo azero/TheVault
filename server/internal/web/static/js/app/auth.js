@@ -1,7 +1,7 @@
 // First-run setup, unlock, and recovery. These are the only screens where the master password is typed.
 import { h, icon, avatarClass, initials, mount, focusFirst, toast } from './dom.js'
 import { post, ApiError } from './api.js'
-import { vault, unlock, setupVaultFlow, finishSetup, recoverWithKey, afterRecovery, UserError } from './vault.js'
+import { vault, broadcast, unlock, setupVaultFlow, finishSetup, recoverWithKey, afterRecovery, UserError } from './vault.js'
 import { strengthMeter, spinner } from './components.js'
 import { alertBox } from './dialog.js'
 import { estimateStrength } from '../core/strength.js'
@@ -22,6 +22,7 @@ function whoBox() {
 }
 
 async function signOut() {
+  broadcast('signout')
   try {
     const r = await post('/session/logout')
     location.assign(r.redirect || '/login')

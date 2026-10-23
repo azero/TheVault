@@ -1,7 +1,7 @@
 // The only way the UI creates DOM. It never parses HTML: strings become text nodes, attributes are set one by one, and
 // links are restricted to http(s)/mailto/same-site. With Trusted Types enforced by the CSP, innerHTML would throw anyway.
 const SVG_NS = 'http://www.w3.org/2000/svg'
-const SAFE_HREF = /^(https?:|mailto:|\/(?!\/)|#)/i
+const SAFE_HREF = /^(https?:|mailto:|\/(?![\/\\])|#)/i
 
 function setAttr(el, k, v) {
   if (v === false || v == null) return

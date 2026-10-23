@@ -25,9 +25,22 @@ async function status() {
 
 async function touch() { await session.set({ lastActive: Date.now() }) }
 
+/** The idle lock must not depend on a timer surviving: a service worker that keeps being restarted resets alarms. */
+async function enforceIdle() {
+  if (!(await isUnlocked())) return
+  const last = (await session.get('lastActive')) ?? 0
+  if (Date.now() - last > (await getPrefs()).idleMinutes * 60_000) await lockNow('idle')
+}
+
+async function liveIndex() {
+  await enforceIdle()
+  return getIndex()
+}
+
 async function lockNow(reason = 'manual', { remote = true } = {}) {
   await clearUnlockKey()
-  await session.remove('offline')
+  await session.remove(['offline', 'prompts']) // a captured password must not outlive the lock
+
   await refreshBadges()
   if (remote) { try { await api('POST', '/vault/lock', {}) } catch { /* offline or signed out: the key is gone locally either way */ } }
 }
@@ -101,7 +114,7 @@ function summary(e, tabUrl) {
 }
 
 async function list({ query = '', tabUrl = '' }) {
-  const idx = await getIndex()
+  const idx = await liveIndex()
   if (!idx) throw new ExtError('locked', 'The vault is locked.')
   await touch()
   const q = query.toLowerCase().split(/\s+/).filter(Boolean)
@@ -114,7 +127,7 @@ async function list({ query = '', tabUrl = '' }) {
 }
 
 async function entry(id) {
-  const idx = await getIndex()
+  const idx = await liveIndex()
   if (!idx) throw new ExtError('locked', 'The vault is locked.')
   const e = idx.find((x) => x.id === id)
   if (!e) throw new ExtError('not_found', 'That item is no longer available.')
@@ -168,7 +181,7 @@ async function activeTab() {
 }
 
 async function fillBest(tabId) {
-  const idx = await getIndex()
+  const idx = await liveIndex()
   if (!idx) throw new ExtError('locked', 'Unlock TheVault first (click the toolbar icon).')
   const tab = tabId ? await chrome.tabs.get(tabId) : await activeTab()
   if (!tab?.url) throw new ExtError('no_match', 'No page to fill.')
@@ -189,8 +202,12 @@ async function captured(sender, m) {
   const username = String(m.username ?? '').slice(0, 300)
   const p = parseUrl(url)
   if ((await hostNever()).includes(p.host)) return
+  // TheVault's own pages (unlock, password dialogs, the item editor) have password fields too, and the master password
+  // must never reach this path
+  const server = await local.get('server')
+  if (server && p.origin === parseUrl(server)?.origin) return
   let kind = 'save', itemId = null, name = p.host
-  const idx = await getIndex().catch(() => null)
+  const idx = await liveIndex().catch(() => null)
   if (idx) {
     const same = matchItems(idx.map((e) => ({ ...e.item, id: e.id })), url).filter((i) => (i.data.username ?? '') === username)
     if (same.some((i) => i.data.password === m.password)) return // already saved, nothing to offer
@@ -203,6 +220,13 @@ async function captured(sender, m) {
   setTimeout(() => chrome.tabs.sendMessage(tabId, { type: 'showSave' }, { frameId: 0 }).catch(() => {}), 1200)
   chrome.action.setBadgeBackgroundColor({ tabId, color: '#1d4ed8' })
   chrome.action.setBadgeText({ tabId, text: '+' })
+}
+
+async function sweepPrompts() {
+  const prompts = (await session.get('prompts')) ?? {}
+  let changed = false
+  for (const [id, p] of Object.entries(prompts)) if (Date.now() - p.at > SAVE_PROMPT_TTL) { delete prompts[id]; changed = true }
+  if (changed) await session.set({ prompts })
 }
 
 async function promptFor(tabId) {
@@ -228,7 +252,7 @@ async function promptAction(tabId, action) {
   if (action === 'dismiss') { await clearPrompt(tabId); return { ok: true } }
   if (!(await isUnlocked())) return { ok: false, locked: true, message: 'Unlock TheVault (toolbar icon), then save.' }
   if (await session.get('offline')) return { ok: false, message: 'You are offline. Saving needs a connection.' }
-  const idx = await getIndex()
+  const idx = await liveIndex()
   try {
     if (p.kind === 'update') {
       const e = idx.find((x) => x.id === p.itemId)
@@ -263,7 +287,7 @@ async function refreshBadge(tabId) {
     const tab = await chrome.tabs.get(tabId)
     if (!tab.url || !(await isUnlocked())) return chrome.action.setBadgeText({ tabId, text: '' })
     if ((await promptFor(tabId))) return
-    const idx = await getIndex()
+    const idx = await liveIndex()
     const n = idx ? matchItems(idx.map((e) => ({ ...e.item, id: e.id })), tab.url).length : 0
     chrome.action.setBadgeBackgroundColor({ tabId, color: '#1d4ed8' })
     chrome.action.setBadgeText({ tabId, text: n ? String(n) : '' })
@@ -310,14 +334,17 @@ function flash(tabId, text) {
 // auto-lock: idle time in the browser, screen lock, and a once-a-minute check against the person's idle setting
 chrome.idle.setDetectionInterval(60)
 chrome.idle.onStateChanged.addListener((s) => { if (s === 'locked') lockNow('screen locked') })
-chrome.alarms.create('tick', { periodInMinutes: 1 })
+// create() with an existing name replaces the alarm and restarts its period, so doing it on every worker start would
+// push the tick back each time the worker is woken
+chrome.alarms.get('tick').then((a) => { if (!a) chrome.alarms.create('tick', { periodInMinutes: 1 }) })
+enforceIdle()
 chrome.alarms.onAlarm.addListener(async (a) => {
   if (a.name === 'tick') {
+    await sweepPrompts()
     if (!(await isUnlocked())) return
-    const last = (await session.get('lastActive')) ?? 0
-    const mins = (await getPrefs()).idleMinutes
-    if (Date.now() - last > mins * 60_000) await lockNow('idle')
-    else if (Date.now() - (await session.get('pinged') ?? 0) > 4 * 60_000 && !(await session.get('offline'))) { await session.set({ pinged: Date.now() }); api('POST', '/vault/ping', {}).catch(() => {}) }
+    await enforceIdle()
+    if (!(await isUnlocked())) return
+    if (Date.now() - (await session.get('pinged') ?? 0) > 4 * 60_000 && !(await session.get('offline'))) { await session.set({ pinged: Date.now() }); api('POST', '/vault/ping', {}).catch(() => {}) }
   }
   if (a.name === 'clip') await clearClipboard()
 })

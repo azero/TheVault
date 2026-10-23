@@ -184,6 +184,7 @@ await step('save bar: a new login is offered after submit, and Save stores it en
   await until(async () => (await page.title()) === 'submitted', 'the SPA submit')
   // the bar lives in a closed shadow root: reach its buttons with the keyboard, as a person could
   await until(async () => page.evaluate(() => !!document.querySelector('[data-thevault]')), 'the save bar')
+  await page.waitForTimeout(900) // the bar ignores clicks for its first 700 ms, so a click cannot land on it unseen
   await shot(page, 'ext-03-save-bar')
   await page.keyboard.press('Tab') // focus was on the submit button: the bar's Save button is the next tab stop
   await page.keyboard.press('Enter')
@@ -205,6 +206,7 @@ await step('save bar: a changed password for a known username is offered as an u
   await page.locator('#p').fill('Changed-pw-888')
   await page.locator('#go').click()
   await until(async () => page.evaluate(() => !!document.querySelector('[data-thevault]')), 'the update bar')
+  await page.waitForTimeout(900)
   await page.keyboard.press('Tab')
   await page.keyboard.press('Enter')
   await until(async () => !(await page.evaluate(() => !!document.querySelector('[data-thevault]'))), 'the bar to close')
@@ -221,12 +223,37 @@ await step('"never for this site" is remembered', async () => {
   const page = await tabOf(siteUrl('/spa.html'))
   await page.locator('#u').fill('someone@else.test'); await page.locator('#p').fill('Whatever-pw-999'); await page.locator('#go').click()
   await until(async () => page.evaluate(() => !!document.querySelector('[data-thevault]')), 'the bar')
+  await page.waitForTimeout(900)
   for (let i = 0; i < 3; i++) await page.keyboard.press('Tab') // Save, Not now, Never for this site
   await page.keyboard.press('Enter')
   await until(async () => !(await page.evaluate(() => !!document.querySelector('[data-thevault]'))), 'the bar to close')
   const pop = await popupFor(null)
   assert.deepEqual((await ext(pop, 'neverList')).data, ['localhost'])
   await ext(pop, 'neverRemove', { host: 'localhost' })
+  await pop.close(); await page.close()
+})
+
+await step('save bar: a password written by page script is not offered, and a bar the page hid ignores clicks', async () => {
+  // 1. script writes the credentials, the person only clicks the page's own button
+  const page = await tabOf(siteUrl('/spa.html'))
+  await page.evaluate(() => { document.getElementById('u').value = 'script@site.test'; document.getElementById('p').value = 'Written-by-script-1' })
+  await page.locator('#go').click()
+  await until(async () => (await page.title()) === 'submitted', 'the SPA submit')
+  await page.waitForTimeout(2200)
+  assert.equal(await page.evaluate(() => !!document.querySelector('[data-thevault]')), false, 'no bar for a value the person did not type')
+  // 2. typed by a person, but the page hides the bar after it appears and leaves a decoy under it
+  await page.locator('#u').fill('hidden@site.test'); await page.locator('#p').fill('Typed-pw-for-hidden-1')
+  await page.locator('#go').click()
+  await until(async () => page.evaluate(() => !!document.querySelector('[data-thevault]')), 'the bar')
+  await page.evaluate(() => document.querySelector('[data-thevault]').style.setProperty('opacity', '0', 'important'))
+  await page.waitForTimeout(900)
+  await page.keyboard.press('Tab'); await page.keyboard.press('Enter')
+  await page.waitForTimeout(600)
+  assert.equal(await page.evaluate(() => !!document.querySelector('[data-thevault]')), true, 'the click was refused, the bar is still there')
+  const pop = await popupFor(null)
+  await pop.locator('#q').fill('hidden@site.test')
+  await page.waitForTimeout(500)
+  assert.equal(await pop.getByText('hidden@site.test').count(), 0, 'nothing was saved')
   await pop.close(); await page.close()
 })
 

@@ -47,14 +47,14 @@ export function importCsv(text) {
   const format = h.includes('login_uri') ? 'Bitwarden' : h.includes('grouping') ? 'LastPass' : h.includes('otpauth') || h.includes('title') ? '1Password' : h.includes('note') ? 'Chrome / Edge' : 'Generic CSV'
   const items = []
   let skipped = 0
-  const get = (r, i) => (i >= 0 ? (r[i] ?? '').trim() : '')
+  const get = (r, i) => (i >= 0 ? unq((r[i] ?? '').trim()) : '')
   for (const r of rows.slice(1)) {
     const type = get(r, idx.type).toLowerCase()
     const isNote = type === 'note' || type === 'securenote' || (!get(r, idx.pass) && !get(r, idx.user) && !get(r, idx.url))
     const it = newItem(isNote ? 'note' : 'login')
     it.name = get(r, idx.name) || get(r, idx.url) || get(r, idx.user)
     if (!it.name && !get(r, idx.notes)) { skipped++; continue }
-    it.notes = (idx.notes >= 0 ? r[idx.notes] ?? '' : '').replace(/\r\n/g, '\n')
+    it.notes = unq(idx.notes >= 0 ? r[idx.notes] ?? '' : '').replace(/\r\n/g, '\n')
     it.folder = get(r, idx.folder).replace(/^\(none\)$/i, '')
     it.fav = ['1', 'true', 'yes'].includes(get(r, idx.fav).toLowerCase())
     if (!isNote) {
@@ -62,7 +62,7 @@ export function importCsv(text) {
       const urls = get(r, idx.url).split(/\r?\n/).map((u) => u.trim()).filter(Boolean)
       it.urls = urls.map((url) => ({ url, match: 'host' }))
       it.data.username = get(r, idx.user)
-      it.data.password = r[idx.pass] ?? ''
+      it.data.password = idx.pass >= 0 ? unq(r[idx.pass] ?? '') : ''
       it.data.totp = get(r, idx.totp)
     }
     items.push(normalizeItem(it))
@@ -70,7 +70,16 @@ export function importCsv(text) {
   return { items, format, skipped }
 }
 
-const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"'
+// Spreadsheets evaluate a cell that starts with = + - @ (or TAB/CR), quoted or not, and a member can share an item whose name
+// or password is a formula that sends the neighbouring cells somewhere. A leading apostrophe makes it plain text; import
+// strips it again, so a round trip is lossless.
+const FORMULA = /^[=+\-@\t\r]/
+const q = (v) => {
+  let t = String(v ?? '')
+  if (FORMULA.test(t)) t = "'" + t
+  return '"' + t.replace(/"/g, '""') + '"'
+}
+const unq = (t) => (/^'[=+\-@\t\r]/.test(t) ? t.slice(1) : t)
 
 /** Plaintext CSV (logins only: the format other managers import). Notes and other types go to the JSON export. */
 export function exportCsv(items) {
