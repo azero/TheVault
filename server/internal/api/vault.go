@@ -148,6 +148,26 @@ func (s *Server) lock(c *rc) {
 	c.ok(map[string]bool{"ok": true})
 }
 
+// verifyPassword re-checks the master password before something dangerous (export, erase, new recovery key), with the
+// same throttling and audit as unlocking, so a hijacked unlocked session cannot guess its way into destructive actions.
+func (s *Server) verifyPassword(c *rc) {
+	var in struct {
+		Auth string `json:"auth"`
+	}
+	if !c.decode(&in, 2<<10) {
+		return
+	}
+	vk, err := s.Store.GetVaultKeys(c.R.Context(), c.Sess.Sub)
+	if err != nil {
+		s.storeErr(c, err)
+		return
+	}
+	if !s.checkProof(c, vk, in.Auth, "unlock_failed") {
+		return
+	}
+	c.ok(map[string]bool{"ok": true})
+}
+
 func (s *Server) changePassword(c *rc) {
 	var in struct {
 		AuthOld    string `json:"auth_old"`

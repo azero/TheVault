@@ -145,11 +145,16 @@ export class Keyring {
     return new Keyring({ ukRaw: Uint8Array.from(ukRaw), uk, encPriv, sigPriv, encPub: keys.enc_pub, sigPub: keys.sig_pub })
   }
 
+  /** Open the user key with an already derived encryption key (so the KDF runs once per unlock). */
+  static async fromEncKey(encKey, unlockResponse) {
+    const ukRaw = await open(encKey, unlockResponse.wrapped_uk, AAD.uk)
+    return Keyring.fromUserKey(ukRaw, unlockResponse)
+  }
+
   /** Unlock with the master password and the server's unlock response ({wrapped_uk, enc_pub, ...}). */
   static async fromPassword(password, kdf, unlockResponse, opts) {
     const { encKey } = await deriveFromPassword(password, kdf, opts)
-    const ukRaw = await open(encKey, unlockResponse.wrapped_uk, AAD.uk)
-    return Keyring.fromUserKey(ukRaw, unlockResponse)
+    return Keyring.fromEncKey(encKey, unlockResponse)
   }
 
   fingerprint() { return fingerprint(this.encPub, this.sigPub) }

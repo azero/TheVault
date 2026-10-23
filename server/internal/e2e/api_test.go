@@ -187,6 +187,26 @@ func TestSetupUnlockLockAndThrottle(t *testing.T) {
 	}
 }
 
+func TestVerifyPasswordIsThrottledLikeUnlock(t *testing.T) {
+	e := newEnv(t)
+	c := e.login(subAna, "ana@example.com")
+	m := setupVault(t, c)
+	c.call("POST", "/api/v1/vault/verify", map[string]any{"auth": m.Auth}, 200, nil)
+	for i := 0; i < 4; i++ {
+		c.call("POST", "/api/v1/vault/verify", map[string]any{"auth": proof()}, 401, nil)
+	}
+	st, body := c.status("POST", "/api/v1/vault/verify", map[string]any{"auth": proof()})
+	if st != 401 || body["retry_after"] == nil {
+		t.Fatalf("the fifth wrong proof must start a lockout: %d %v", st, body)
+	}
+	c.call("POST", "/api/v1/vault/verify", map[string]any{"auth": m.Auth}, 429, nil)
+	var s map[string]any
+	c.call("GET", "/api/v1/session", nil, 200, &s)
+	if ids, ok := s["extension_ids"].([]any); !ok || len(ids) != 1 {
+		t.Fatalf("extension_ids must always be a list: %v", s["extension_ids"])
+	}
+}
+
 func TestIdleLockAndSSOExpiry(t *testing.T) {
 	e := newEnv(t)
 	c := e.login(subAna, "ana@example.com")

@@ -1,0 +1,21 @@
+/* Popup-only layout on top of the shared design system (app.css is copied from the web app). */
+html { min-width: 380px; }
+body.popup { width: 380px; min-height: 200px; max-height: 600px; overflow-x: hidden; background: var(--bg); }
+.pop-head { display: flex; align-items: center; gap: .6rem; padding: .65rem .75rem; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+.pop-head img { height: 1.9rem; width: auto; }
+.pop-body { padding: .75rem; }
+.pop-section { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: .6rem .25rem .3rem; }
+.pop-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+.pop-row { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.pop-row .meta { flex: 1; min-width: 0; }
+.pop-row .title { font-weight: 600; display: flex; gap: .3rem; align-items: center; }
+.pop-row .sub { font-size: .8125rem; color: var(--muted); }
+.pop-row .acts { display: flex; gap: .15rem; flex: none; }
+.pop-row.match { border-color: var(--accent); background: var(--accent-soft); }
+.pop-foot { display: flex; gap: .4rem; padding: .5rem .75rem; border-top: 1px solid var(--line); background: var(--surface); position: sticky; bottom: 0; }
+.pop-center { padding: 1.25rem .9rem; display: grid; gap: .9rem; }
+.pop-center .logo { max-width: 14rem; }
+.otp { font-family: var(--mono); letter-spacing: .08em; }
+.pop-msg { min-height: 1.4rem; font-size: .875rem; }
+.pop-gen { display: flex; gap: .4rem; align-items: center; }
+.pop-gen .gen-out { flex: 1; font-size: .9rem; min-height: 2.4rem; padding: .45rem .6rem; }

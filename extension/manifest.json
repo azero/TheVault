@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "TheVault",
+  "short_name": "TheVault",
+  "version": "1.0.0",
+  "description": "Fill passwords, copy one-time codes and save logins from your company's TheVault. Zero-knowledge: everything is encrypted on this device.",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyUNiZxCJ0m6H6imjx30rDgmceZ+QC4uUOC565ciGovZsOxFTz9MMU8j0Fe84epKaoofMDvPPhVdX7+jPNFawTCDl/au+5i6brAIEiAAeggcotzkyZsxeLYuF/nLewRThumf1rZmxzgiG3gYJUktD8Wtx4+GjllbnM7C994a2C5Eklsf7moP3o3RpkcJ/sWTZnQA01TnSsfzVKxc0QkkirZevGdHjOZCO7L3YDleFok3u0Xw2Ix80CIZmnc9DqHme5Ccb35wRcMYzgRbHU9YRNPx2toqr8fAyq1RfDV9ERqYPFe5zJKEarNJPhViq/lUZoodNxzveJMK0PDZl/6ZALwIDAQAB",
+  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
+  "action": {
+    "default_title": "TheVault",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" }
+  },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "permissions": ["storage", "alarms", "identity", "idle", "contextMenus", "offscreen", "clipboardWrite", "tabs", "webNavigation", "unlimitedStorage"],
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "match_about_blank": false,
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "fill-login": {
+      "suggested_key": { "default": "Ctrl+Shift+L", "mac": "Command+Shift+L" },
+      "description": "Fill the login for this page"
+    }
+  },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'" }
+}

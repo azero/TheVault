@@ -110,6 +110,8 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	h("POST /api/v1/vault/setup", anyOK, s.setup)
 	h("POST /api/v1/vault/unlock", anyOK, s.unlock)
 	h("POST /api/v1/vault/lock", anyOK, s.lock)
+	h("POST /api/v1/vault/ping", unl, func(c *rc) { c.ok(map[string]any{"unlocked_until": c.Sess.UnlockedUntil}) })
+	h("POST /api/v1/vault/verify", unl, s.verifyPassword)
 	h("POST /api/v1/vault/password", unl, s.changePassword)
 	h("POST /api/v1/vault/recovery/start", anyOK, s.recoveryStart)
 	h("POST /api/v1/vault/recovery/finish", anyOK, s.recoveryFinish)

@@ -41,7 +41,7 @@ func (s *Server) getSession(c *rc) {
 		"idle_lock_minutes": idle,
 		"version":           s.Version,
 		"can_plain_export":  s.Cfg.AllowPlainExport,
-		"extension_ids":     s.Cfg.ExtensionIDs,
+		"extension_ids":     append([]string{}, s.Cfg.ExtensionIDs...),
 		"server_time":       now.Unix(),
 	})
 }
