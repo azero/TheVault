@@ -1,0 +1,16 @@
+{
+  "name": "thevault-dev",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling only (tests, extension build). Nothing here ships in the server image.",
+  "scripts": {
+    "test": "node --test \"tests/js/*.test.mjs\"",
+    "build:extension": "node scripts/build-extension.mjs",
+    "sync": "node scripts/sync-core.mjs",
+    "check:sync": "node scripts/sync-core.mjs --check"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "playwright-core": "1.56.1"
+  }
+}

@@ -1,0 +1,20 @@
+# secrets and runtime data
+.env
+deploy/.env
+data/
+*.db
+*.db-wal
+*.db-shm
+*.pem
+*.key
+
+# build output
+/server/bin/
+/dist/
+node_modules/
+/tests/ui/out/
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store
