@@ -29,7 +29,7 @@ export function watch(page, problems) {
 
 export async function shot(page, name) {
   const file = path.join(OUT, name + '.png')
-  await page.screenshot({ path: file, fullPage: false })
+  await page.screenshot({ path: file, fullPage: false, animations: 'disabled' })
   return file
 }
 

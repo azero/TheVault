@@ -18,7 +18,9 @@ const header = (extra) => h('div', { class: 'pop-head' }, h('img', { src: 'brand
 
 async function refresh() {
   state = await call('status')
-  ;[tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  // `?tab=<id>` lets tests (or a pinned popup page) target a specific tab; the popup normally acts on the active one
+  const forced = Number(new URLSearchParams(location.search).get('tab'))
+  tab = forced ? await chrome.tabs.get(forced) : (await chrome.tabs.query({ active: true, currentWindow: true }))[0]
   if (!state.configured) return viewConfigure()
   if (!state.signedIn) return viewSignIn()
   if (!state.unlocked) return viewUnlock()

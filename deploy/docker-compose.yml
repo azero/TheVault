@@ -1,0 +1,38 @@
+# Portainer stack / docker compose for TheVault. One container; all state lives in /data.
+# Upgrade = pull the new image and redeploy; the bind mount keeps your data.
+services:
+  thevault:
+    image: ghcr.io/azero/thevault:latest
+    container_name: thevault
+    restart: unless-stopped
+    user: "10002:10002"
+    environment:
+      VAULT_DATA_DIR: /data
+      VAULT_LISTEN: ":8444"
+      VAULT_PUBLIC_URL: ${VAULT_PUBLIC_URL:?set VAULT_PUBLIC_URL}
+      VAULT_OIDC_ISSUER: ${VAULT_OIDC_ISSUER:?set VAULT_OIDC_ISSUER}
+      VAULT_OIDC_CLIENT_ID: ${VAULT_OIDC_CLIENT_ID:?set VAULT_OIDC_CLIENT_ID}
+      VAULT_OIDC_CLIENT_SECRET: ${VAULT_OIDC_CLIENT_SECRET:?set VAULT_OIDC_CLIENT_SECRET}
+      # Optional (see .env.sample). Empty values are treated as unset.
+      VAULT_EXTENSION_IDS: ${VAULT_EXTENSION_IDS:-gfnpigdeagehjmdcmkijcmgfadlpnlbl}
+      VAULT_TRUSTED_IP_HEADER: ${VAULT_TRUSTED_IP_HEADER:-}
+      VAULT_SKYNET_URL: ${VAULT_SKYNET_URL:-}
+      VAULT_SKYNET_ENROLL_TOKEN: ${VAULT_SKYNET_ENROLL_TOKEN:-}
+      VAULT_SKYNET_KEY: ${VAULT_SKYNET_KEY:-}
+      VAULT_SKYNET_COMMAND_PUBKEY: ${VAULT_SKYNET_COMMAND_PUBKEY:-}
+      VAULT_SKYNET_HOST: ${VAULT_SKYNET_HOST:-thevault}
+      VAULT_RESPONSE_ALLOWLIST: ${VAULT_RESPONSE_ALLOWLIST:-}
+      VAULT_UNLOCK_IDLE_MINUTES: ${VAULT_UNLOCK_IDLE_MINUTES:-15}
+      VAULT_AUDIT_RETENTION_DAYS: ${VAULT_AUDIT_RETENTION_DAYS:-365}
+      VAULT_MAX_ITEMS_PER_USER: ${VAULT_MAX_ITEMS_PER_USER:-20000}
+      VAULT_DISABLE_PLAIN_EXPORT: ${VAULT_DISABLE_PLAIN_EXPORT:-}
+    volumes:
+      # The host directory must be writable by uid 10002:  chown -R 10002:10002 /srv/thevault/data
+      - ${VAULT_DATA_PATH:-/srv/thevault/data}:/data
+    ports:
+      - "8444:8444"   # put your reverse proxy (Traefik/Caddy/nginx) in front; it terminates TLS
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

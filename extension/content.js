@@ -122,7 +122,7 @@
       .bar { position: fixed; top: 12px; right: 12px; z-index: 2147483647; width: min(360px, calc(100vw - 24px)); font: 14px/1.45 system-ui, sans-serif;
         background: #0e1522; color: #e7ecf5; border: 1px solid #2b3b59; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.45); padding: 14px; }
       .row { display: flex; gap: 10px; align-items: center; }
-      img { width: 28px; height: 28px; }
+      .ico { width: 28px; height: 28px; flex: none; fill: none; stroke: #5b9bff; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
       strong { display: block; } span.s { color: #9fb0c9; font-size: 13px; word-break: break-all; }
       .btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
       button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid #2b3b59; background: #121b2b; color: #e7ecf5; padding: 6px 12px; }
@@ -131,7 +131,17 @@
       .msg { margin-top: 8px; color: #f5b04a; font-size: 13px; }
     `)
     root.adoptedStyleSheets = [css]
-    const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids); return e }
+    const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(Boolean)); return e }
+    // an inline shield (extension files are not reachable from page DOM unless they are web-accessible, and we keep none)
+    const shield = () => {
+      const NS = 'http://www.w3.org/2000/svg'
+      const svg = document.createElementNS(NS, 'svg')
+      svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'ico'); svg.setAttribute('aria-hidden', 'true')
+      for (const d of ['M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z', 'M9 12l2 2 4-4']) {
+        const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); svg.append(p)
+      }
+      return svg
+    }
     const msg = el('div', { className: 'msg', role: 'status' })
     const act = async (action) => {
       const r = await send({ type: 'promptAction', action })
@@ -142,7 +152,7 @@
     const close = () => { host.remove(); bar = null }
     const verb = info.kind === 'update' ? 'Update the password for' : 'Save the login for'
     root.append(el('div', { className: 'bar', role: 'alertdialog', ariaLabel: 'TheVault: save this login?' },
-      el('div', { className: 'row' }, el('img', { src: chrome.runtime.getURL('icons/icon-48.png'), alt: '' }),
+      el('div', { className: 'row' }, shield(),
         el('div', {}, el('strong', { textContent: `${verb} ${info.host}?` }), el('span', { className: 's', textContent: info.username || '(no username)' }))),
       el('div', { className: 'btns' }, btn(info.kind === 'update' ? 'Update' : 'Save', 'save', 'p'), btn('Not now', 'dismiss'), btn('Never for this site', 'never')),
       info.locked ? el('div', { className: 'msg', textContent: 'TheVault is locked: click the toolbar icon to unlock, then press Save.' }) : null, msg))

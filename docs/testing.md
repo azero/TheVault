@@ -1,0 +1,15 @@
+# Testing
+
+| Suite | Command | What it proves |
+|---|---|---|
+| Go unit + end-to-end | `cd server && go test -race -count=1 ./...` | sessions, SSO revocation and outage, throttling and lockout, CSRF/origin/CORS, items and revisions, space roles and rotation completeness, extension sign-in (PKCE, redirects, replay, renewal), admin, SkyNet shipping and signed commands. The e2e package runs the real handler against a **fake ClosedDoor** and a **fake SkyNet** (`harness_test.go`) |
+| Crypto core | `npm test` | RFC 6238/4226 vectors, envelope tamper/AAD/truncation, KDF bounds, unlock/change/recovery, recovery-key typo detection, share-wrap forgery cases, URL matching and phishing look-alikes, CSV and export |
+| Web app | `node tests/ui/run.mjs` | the real binary in Chromium: setup wizard, vault CRUD, TOTP against a reference, copy, search, favorites, trash, health, lock/unlock, reload, nothing sensitive in browser storage, import/export (the encrypted export contains no plaintext), recovery, spaces with three people (add, share, read-only viewer, remove, **rotate**, others still read), admin, locked accounts; **CSP and Trusted Types** are asserted; axe (WCAG 2.2 AA) on every screen in light and dark; no horizontal scroll on phones; screenshots in `tests/ui/out/` |
+| Extension | `node tests/ext/run.mjs` | the unpacked extension in Chromium: the real sign-in window, unlock, fill (with honeypots), other host, hostile frames in both directions, shortcut path, OTP and username-only, save bar (new/update/never), lock, ciphertext-only storage, offline unlock |
+| SkyNet interop | `SKYNET_SRC=../SkyNet node tests/skynet/run.mjs` | against the **real** SkyNet binary: enrollment, ingest, the real `skynet-vault-unlock-bruteforce-ip` rule firing on a spray across three accounts, SkyNet's own response service signing `block_ip`, TheVault verifying and enforcing it (403 for that address only) |
+| Colours | `python3 tests/contrast.py` | WCAG AA for every token pair, light and dark |
+| Rules (in SkyNet) | `cd SkyNet/server && go test ./internal/detect` | every TheVault rule has a positive and a negative fixture |
+
+Browser tests need a Chromium (`CHROME_PATH`, or Playwright's). They start everything themselves (a random port, a temporary data directory) and clean up.
+
+**What is deliberately not automated:** idle auto-locking by the clock (the server window is tested by editing `unlocked_until`; the browser timer is a small `setInterval`), the real ClosedDoor (the fake follows `docs/protocol.md` of ClosedDoor; run the real one by hand before a release), and Windows/macOS Chrome (CI runs Linux).
