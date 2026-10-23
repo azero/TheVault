@@ -539,6 +539,35 @@ await step('admin can lock an account; the person is signed out and cannot come 
 })
 
 
+await step('an expired ClosedDoor token is renewed silently before unlocking; with no ClosedDoor session you land on sign-in', async () => {
+  const { DatabaseSync } = await import('node:sqlite')
+  const expire = () => { const db = new DatabaseSync(stack.dataDir + '/vault.db'); db.exec(`UPDATE sessions SET token_expiry = ${Math.floor(Date.now() / 1000) - 60}`); db.close() }
+  await A.goto(stack.url + '/#/all')
+  await A.getByRole('button', { name: 'Lock vault' }).click()
+  await A.locator('#master').waitFor()
+  expire()
+  await A.reload()                      // the SPA sees sso.fresh = false and bounces through ClosedDoor with prompt=none
+  await A.waitForURL((u) => u.pathname === '/' , { timeout: 20000 })
+  await A.locator('#master').waitFor()
+  const fresh = await A.evaluate(async () => (await (await fetch('/api/v1/session')).json()).sso.fresh)
+  assert.equal(fresh, true, 'the new session carries a fresh token')
+  await unlockWith(A, pw)
+  await A.locator('.topbar').waitFor()
+  // now ClosedDoor itself has no session for this browser: a silent attempt ends on the sign-in page with a message
+  await A.getByRole('button', { name: 'Lock vault' }).click()
+  await A.locator('#master').waitFor()
+  expire()
+  await ana.ctx.clearCookies({ domain: new URL(stack.sso.url).hostname })
+  await A.reload()
+  await A.waitForURL(/\/login/, { timeout: 20000 })
+  await A.getByText('Your session ended').waitFor()
+  await ana.ctx.addCookies([{ name: 'sso_user', value: 'ana', url: stack.sso.url }])
+  await A.getByRole('link', { name: 'Sign in with ClosedDoor' }).click()
+  await A.waitForURL(stack.url + '/')
+  await unlockWith(A, pw)
+  await A.locator('.topbar').waitFor()
+})
+
 await step('visual: dark mode and phone widths (screenshots, axe in dark mode, no horizontal scrolling)', async () => {
   const noHScroll = async (label) => assert.equal(await A.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), true, `horizontal scroll on ${label}`)
   await A.emulateMedia({ colorScheme: 'dark' })

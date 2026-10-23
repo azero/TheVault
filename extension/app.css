@@ -203,6 +203,7 @@ input[type="range"] { accent-color: var(--accent); width: 100%; }
 .card-foot { padding: .9rem 1.25rem; border-top: 1px solid var(--line); background: var(--surface-2); border-radius: 0 0 var(--radius) var(--radius); }
 .card-danger { border-color: var(--danger-line); }
 .card + .card { margin-top: 1.25rem; }
+.grid-2 > .card + .card { margin-top: 0; }
 .alert { display: flex; gap: .75rem; align-items: flex-start; padding: .8rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface-2); }
 .alert > .icon { margin-top: .15rem; }
 .alert-error { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger); }

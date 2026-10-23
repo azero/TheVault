@@ -585,3 +585,25 @@ func TestAdmin(t *testing.T) {
 		}
 	}
 }
+
+func TestExtensionDownloadNeedsASession(t *testing.T) {
+	e := newEnv(t)
+	anon := e.newClient()
+	if st, _, _ := anon.do("GET", "/download/extension.zip", nil, nil); st != 401 {
+		t.Fatalf("anonymous download: %d", st)
+	}
+	c := e.login(subAna, "ana@example.com")
+	st, body, h := c.do("GET", "/download/extension.zip", nil, nil)
+	switch st {
+	case 200: // the Docker build embeds the package
+		if h.Get("Content-Type") != "application/zip" || len(body) < 1000 || string(body[:2]) != "PK" || h.Get("Cache-Control") != "no-store" {
+			t.Fatalf("bad zip response: %v %d bytes", h, len(body))
+		}
+	case 404: // a plain `go build` has no package: the message says what to do
+		if !strings.Contains(string(body), "build:extension") {
+			t.Fatalf("unhelpful 404: %s", body)
+		}
+	default:
+		t.Fatalf("download: %d", st)
+	}
+}
