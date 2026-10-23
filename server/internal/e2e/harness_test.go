@@ -43,13 +43,18 @@ type fakeSSO struct {
 	Sub    string
 	Email  string
 	Name   string
+
+	// API keys (POST /api/introspect), see apikeys_test.go
+	keys           map[string]*fakeKey
+	Introspects    int  // how many introspection requests were made (valid or not)
+	IntrospectDown bool // answer 503
 }
 
 type authz struct{ challenge, nonce, redirect string }
 
 func newFakeSSO(t *testing.T) *fakeSSO {
 	k, _ := rsa.GenerateKey(rand.Reader, 2048)
-	f := &fakeSSO{t: t, key: k, codes: map[string]authz{}, Roles: nil, Login: true, Expiry: 3600, Sub: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Email: "ana@example.com", Name: "Ana Admin"}
+	f := &fakeSSO{t: t, key: k, keys: map[string]*fakeKey{}, codes: map[string]authz{}, Roles: nil, Login: true, Expiry: 3600, Sub: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Email: "ana@example.com", Name: "Ana Admin"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -142,6 +147,8 @@ func (f *fakeSSO) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			json.NewEncoder(w).Encode(map[string]any{"sub": f.Sub, "roles": roles})
 		}
+	case "/api/introspect":
+		f.introspect(w, r, base)
 	default:
 		http.NotFound(w, r)
 	}

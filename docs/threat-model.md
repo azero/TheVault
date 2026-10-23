@@ -20,6 +20,7 @@ The *contents* of everyone's vault (secrets, names, URLs, notes) and the *availa
 | Phishing page trying to get the extension to fill | **No** | Exact host matching, https only, top frame and frame must match, visible fields only, user action required. |
 | Malicious web page trying to drive the web app (XSS/CSRF/clickjacking) | No | Strict CSP + Trusted Types, CSRF header + origin checks, `frame-ancestors 'none'`. |
 | A removed space member | Not future changes | They keep what they already downloaded. Removal forces key rotation, so new and re-encrypted items need a key they never had. |
+| Someone who steals or abuses an **API key** (automation API) | **No** | A key can never be unlocked, and the API has no route that returns vault content, ciphertext or key material. They can read personal data and the audit trail (per permission) and, with `users:lock`/`sessions:revoke`, disrupt accounts. See "Automation API" below. |
 | A malicious space member | Everything in that space | By definition of sharing. Viewers can read; roles limit what the *server* accepts. |
 
 ## Assumptions
@@ -41,3 +42,32 @@ The *contents* of everyone's vault (secrets, names, URLs, notes) and the *availa
 8. **Rollback.** Devices remember the highest key version per space and refuse older ones, but a malicious server can still serve an older revision of one item, or an old state to a device that never saw the newer one. Fixing this needs a signed manifest of item revisions; not built.
 9. **Export**: plain exports exist (migration, audits); spreadsheet-formula cells in the CSV are prefixed with an apostrophe (import strips it). They need the master password again, are audited and alerted; `VAULT_DISABLE_PLAIN_EXPORT=1` removes them. A compromised client can export without reporting it, which is why the report is advisory.
 10. **Extension sign-in id is public.** The manifest key is committed so the id is stable; anyone can load an unpacked extension with the same key. That gives them a client, not access: they still need ClosedDoor sign-in and the master password. For a managed fleet, force-install a build you signed and set `VAULT_EXTENSION_IDS` to its id.
+
+## Automation API
+
+Optional ([automation-api.md](automation-api.md)); scripts authenticate with ClosedDoor API keys. The design question is what a script may be allowed to do in a zero-knowledge system.
+
+**Rule: an API key sees what an administrator sees, and no more; and what an administrator sees contains no vault content.** The server can only read or write vault data for a session that has been *unlocked* with a proof derived from the master password (security invariant 3), and an API key has no master password. The API is therefore an administration and operations interface, and it is built so that compromise or misuse of a key, or of every key, cannot disclose a secret:
+
+* No route returns an item, folder, tag, note, space name or content, ciphertext, a wrapped or public key, a salt or KDF parameter, a proof or recovery data. No export or backup download exists; backups are listed by name, size and time only. A test seeds a vault with recognisable values and fetches every endpoint with every permission and as an administrator's user key.
+* The new metadata the server shows is **already visible to administrators** in the administration screens (accounts, roles, lock state, sign-in times, session counts, audit rows, SkyNet status); the API adds no new kind of metadata. Where the screen shows more than automation needs (item and space counts per person, user-agent strings, full item ids) the API leaves it out or shortens it (ids of items and spaces are cut to 12 characters in audit rows, as in the screen). Session listings carry no tokens.
+* Erasing a vault, creating or deleting accounts, changing roles, SkyNet blocks and master-password operations are not exposed: they are irreversible or belong to other systems.
+
+**Attackers considered**
+
+| Attacker | Outcome |
+|---|---|
+| Steals a key (leaked script, CI log) | Can do exactly what the key's permissions allow, nothing in the vault. Limit by granting least permissions, short expiries and one key per integration; revoke in ClosedDoor (effective on the next request, or within `VAULT_API_CACHE_SECONDS`). Every use is audited with the key id and sent to SkyNet. |
+| Guesses keys | Keys are 256-bit random. Failed attempts are throttled per address (20 a minute) before ClosedDoor is asked, and reported to SkyNet (`api_auth_failed`). |
+| Floods the API | Per-key limit (before ClosedDoor is asked), per-address failure throttle, 15 s deadline, 1 MB bodies, SkyNet blocks apply to the API too. |
+| Abuses a person's *user key* | Authority is permission AND role: the person must hold the `admin` label (read live from ClosedDoor) and not be locked, so a demoted, disabled or locked person's key stops being useful at once. |
+| Locks everyone out | Needs `users:lock`. Locking the caller (user keys) and the last active administrator is refused; unlocking is a separate permission; every call is audited and alerts via SkyNet (`admin_user_locked` and `api_call`). |
+| Browser-based attack on the API | No cookies are accepted (nothing ambient to ride on), no CORS (a page cannot read a response), no CSRF token needed or accepted; the web UI in turn refuses `cdk_` keys. |
+| Impersonates ClosedDoor (network) | Verification calls go to `VAULT_OIDC_ISSUER`, which must be https (loopback excepted), with the app's own client secret in an Authorization header. If ClosedDoor cannot be reached or rejects TheVault, requests get 503: it never fails open. |
+
+**Residual risks (decisions)**
+
+1. A key with `audit:read` or `users:read` discloses personal data (emails, addresses, the security trail). That is why they are separate, audited permissions.
+2. A cache (if enabled) keeps a revoked key alive for at most `VAULT_API_CACHE_SECONDS` (advice: 30 or less; default 0).
+3. The "last active administrator" guard uses the role recorded at each person's last sign-in; it is a safety net against a script locking everyone, not a substitute for least-privilege keys.
+4. API traffic shares a process, a database and the rate limits' memory with the web app; the limits above bound what it can cost.

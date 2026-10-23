@@ -21,11 +21,13 @@ In a browser, set a cookie `sso_user=ana` (admin), `bob` or `cat` on the fake Cl
 ## Layout of the server
 
 ```
-cmd/thevault           serve | healthcheck | backup | version
+cmd/thevault           serve | healthcheck | backup | api-scopes | version
 internal/config        environment -> Config (validated, strict)
 internal/store         SQLite (pure Go), append-only migrations, every query; no business rules about crypto
 internal/auth          OIDC (code+PKCE), roles, rate limiter
 internal/api           guard + handlers (session, vault keys, items, spaces, devices, admin, extension sign-in)
+internal/automation    the optional automation API (ClosedDoor API keys): catalog, middleware, handlers
+internal/closeddoorapi ClosedDoor's Go key verifier, vendored unchanged from ClosedDoor/clients/go/closeddoorapi
 internal/audit         audit log + sinks (SkyNet)
 internal/skynet        outbox shipper, command verification, deny list
 internal/keys          pepper and cookie key
@@ -40,6 +42,7 @@ internal/e2e           end-to-end tests with a fake ClosedDoor and a fake SkyNet
 | Task | Do this |
 |---|---|
 | New endpoint | handler in `internal/api`, register in `Routes` with the right `need`, store method(s), e2e test, entry in `docs/api.md`; if it is security relevant, an audit event listed in `docs/security.md` |
+| New automation API endpoint | scope in `automation.Catalog` (name, description <= 190 chars, sensitivity, SkyNet category), route in `routes()` with its scope and whether user keys need the admin role, handler in `handlers.go`, a row in the permissions table and a section in `docs/automation-api.md`, the regenerated `thevault api-scopes` block there, e2e tests (success, failure, scope matrix, audit); read the rules in AGENTS.md first: no vault content, ever |
 | New item type | add it to `TYPES` in `core/item.js` (fields drive the editor, detail view, import, search); icon in `icons.svg`; a node test |
 | New schema | append a migration in `store/migrations.go`; never edit an applied one |
 | New setting | `config.Load`, `config_test.go`, `deploy/.env.sample`, `docker-compose.yml`, `docs/operations.md` |

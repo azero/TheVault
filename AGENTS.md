@@ -12,7 +12,7 @@ It is **zero-knowledge**: the server stores only ciphertext. Everything is encry
 
 | Dir | What | Language |
 |---|---|---|
-| `server/` | API, storage, SSO login, SkyNet shipping/enforcement, embedded web UI | Go (version pinned in `server/go.mod`), one static binary |
+| `server/` | API, storage, SSO login, SkyNet shipping/enforcement, embedded web UI, optional automation API for scripts | Go (version pinned in `server/go.mod`), one static binary |
 | `server/internal/web/static/js/core/` | **The crypto core.** Used by the web UI *and* the extension. No DOM, no network. | JavaScript (ES modules, no dependencies) |
 | `server/internal/web/static/js/app/` | The web UI (single-page, hash routing) | JavaScript |
 | `extension/` | Chrome MV3 extension: popup, service worker, content script | JavaScript |
@@ -27,12 +27,13 @@ It is **zero-knowledge**: the server stores only ciphertext. Everything is encry
 3. **One self-contained container.** Static binary (`CGO_ENABLED=0`), pure-Go SQLite (`modernc.org/sqlite`), no sidecars. **All state lives under `VAULT_DATA_DIR` (`/data`)**: `vault.db`, `keys/`, `backups/`. The container root FS is read-only.
 4. **Schema changes are append-only migrations** in `server/internal/store/migrations.go`. Never edit an applied migration. A build refuses to open a database from a newer schema.
 5. **Secrets come from the environment, never committed.** `.env`, `data/`, `*.db`, `*.key`, `*.pem` are gitignored. Session ids, bearer tokens, auth proofs and recovery proofs are stored only as hashes/HMACs.
-6. **Few dependencies.** Server deps: `go-oidc`, `x/oauth2`, `modernc.org/sqlite` (same as SkyNet). **No npm/CDN/third-party JavaScript in the product** (dev tooling in the root `package.json` is for tests only). Ask before adding anything.
+6. **Few dependencies.** Server deps: `go-oidc`, `x/oauth2`, `modernc.org/sqlite` (same as SkyNet). `internal/closeddoorapi` is ClosedDoor's stdlib-only API-key verifier, vendored **unchanged** from `ClosedDoor/clients/go/closeddoorapi` (fix bugs upstream, then re-copy). **No npm/CDN/third-party JavaScript in the product** (dev tooling in the root `package.json` is for tests only). Ask before adding anything.
 7. **Web UI rules.** CSP: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; require-trusted-types-for 'script'`. So: no inline `<script>`/`style`/`on*=`, no external assets, and **no `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write`/`eval`** anywhere (Trusted Types makes them throw). Build DOM with `h()` from `js/app/dom.js`. `form-action` is intentionally absent (it breaks the post-logout redirect to the SSO).
 8. **Extension rules.** Never autofill without an explicit user action. Fill only on an exact match of the saved URL rules (docs/extension.md), never into cross-origin frames or hidden fields, never over `http://` except localhost. The master password is only ever typed into the popup/options pages, never into a web page. Decrypted data is never written to `storage.local`; the unlock key lives only in `storage.session`.
-9. **Every state-changing API call** goes through the guard: session or bearer token, role, unlocked vault (where the call needs it), CSRF header (cookie sessions), same-origin/extension-origin check.
+9. **Every state-changing call of the browser/extension API** goes through the guard: session or bearer token, role, unlocked vault (where the call needs it), CSRF header (cookie sessions), same-origin/extension-origin check. The separate **automation API** (`internal/automation`) has its own guard (ClosedDoor API key, permission, role; see invariants 13 to 17) and is the only other way in.
 10. **PHP/other runtimes are not used.** Go on the server, plain JS on the clients.
-11. **The extension copy of the core is generated.** Edit `server/internal/web/static/js/core/`, then run `npm run sync` (copies into `extension/core/`); CI runs `npm run check:sync`.
+11. **The automation API exposes no vault content, ever** (`internal/automation`, [docs/automation-api.md](docs/automation-api.md)). An API key can never be unlocked, so no item, folder, space content, ciphertext, key material, wrapped or public key, KDF parameter or per-person item/space count may appear in any of its responses, events or errors, and no route may touch the unlock machinery. It stays an administration and operations interface (health, accounts, sessions, audit, SkyNet block list). Adding a route that returns anything derived from a vault needs the owner's explicit decision and a threat-model entry; a test fails if a route path suggests vault content.
+12. **The extension copy of the core is generated.** Edit `server/internal/web/static/js/core/`, then run `npm run sync` (copies into `extension/core/`); CI runs `npm run check:sync`.
 
 ## Commands
 
@@ -43,6 +44,8 @@ gofmt -l .                      # must print nothing
 go vet ./...
 go test -race -count=1 ./...    # unit + end-to-end (fake SSO, fake SkyNet), no external services
 go build -o thevault ./cmd/thevault
+
+go run ./cmd/thevault api-scopes   # the automation API's permissions, paste-ready for ClosedDoor (Admin > Applications > TheVault > API permissions)
 
 # run locally (needs an OIDC provider: a ClosedDoor app, or the fake one in tests/ui/devserver.mjs)
 VAULT_DATA_DIR=./data VAULT_LISTEN=:8444 VAULT_PUBLIC_URL=http://localhost:8444 \
@@ -63,7 +66,8 @@ python3 tests/contrast.py       # WCAG AA check of the colour tokens, light + da
 - Go: standard layout `cmd/` + `internal/`. Errors wrapped with context; no panics on user input. Small packages. `?` placeholders only in SQL; `Store` is the only place SQL lives.
 - **Everything from a client is untrusted.** Validate ids, sizes, base64url shape, enum values and envelope format (`v1.<iv>.<ct>`) before storing. The server cannot validate ciphertext, so it validates *shape and size* and enforces ownership/role/revision.
 - Time: UTC; the database stores unix seconds.
-- Security-relevant actions go to `Audit.Log(...)` (DB + SkyNet); list new event names in `docs/security.md` **and** map them in `internal/audit`.
+- Security-relevant actions go to `Audit.Log(...)` (DB + SkyNet); list new event names in `docs/security.md` **and** give them a SkyNet category (`category()` in `internal/skynet/events.go`, or `audit.Event.Category` for a one-off; `audit.Event.User` overrides the person shown to SkyNet).
+- **Adding an automation API endpoint**: 1) scope in `automation.Catalog` (`name:action`, description at most 190 chars, `Sensitive` for personal data or account changes, SkyNet category); 2) the route in `routes()` with exactly one scope and whether user keys need the `admin` role; 3) the handler in `internal/automation/handlers.go` (reuse the `store` function and the safety rules of the matching admin screen, validate every id and parameter, paginate lists, never return vault content); 4) `docs/automation-api.md`: endpoint section, permissions-table row, and the `thevault api-scopes` block (a test compares it byte for byte); 5) tests: a unit test and e2e success + failure + the scope matrix (`e2e/apikeys_test.go`), and the audit/SkyNet check.
 - **Item blobs are bound to their id, vault and key version** through AES-GCM additional data. If you add a place that encrypts or decrypts, build the AAD with the helpers in `core/item.js`.
 - JS: ES modules, 2 spaces, no semicolons-vs-semicolons wars (match the file), small pure functions in `core/`, DOM only in `app/`. UI strings are plain English; no frameworks.
 - UI: style only through classes in `static/app.css` using its tokens; icons via `icon()` and `static/icons.svg`; one `<h1>` per view; every input has a label; new colour pairs go into `tests/contrast.py`.
@@ -83,6 +87,11 @@ python3 tests/contrast.py       # WCAG AA check of the colour tokens, light + da
 10. Nothing sensitive in URLs (no ids or secrets in query strings except one-time codes), no external resources, `Cache-Control: no-store` on every API/HTML response, no secrets in logs.
 11. SkyNet commands are executed only if the Ed25519 signature (pinned key), agent id, expiry (<15 min window) and single-use id verify; never-block list (loopback, link-local, multicast, the SkyNet host, `VAULT_RESPONSE_ALLOWLIST`) is enforced here too.
 12. Events sent to SkyNet never contain anything from a blob, a typed email that is not valid, or a secret.
+13. Automation API credentials: only `cdk_` keys of the exact shape (never cookies, extension tokens or access tokens), verified live by ClosedDoor on every request (cache only if `VAULT_API_CACHE_SECONDS` > 0); an unreachable ClosedDoor, or one that rejects our own client credentials, is `503` and **fails closed**. Credentials are never logged, audited or sent to SkyNet (at most 8 characters of a rejected key-shaped value).
+14. Automation API authority = permission AND role: every route needs one catalogued scope; user keys additionally need the exact `admin` role label (read live) and an account not locked in TheVault; service keys are bound by scope only. Keep the guards of the admin screen (no self-lock) and the last-active-administrator guard.
+15. The automation API has no cookies, no CSRF token and no CORS (`OPTIONS` is 405); a cookie session never authenticates it and an API key never authenticates the web/extension API. Unknown paths and wrong methods get 404/405 without asking ClosedDoor; credentials not shaped like keys get 401 without asking ClosedDoor.
+16. Failed authentication is throttled per client address (20 a minute, checked before ClosedDoor is asked), requests per key (`VAULT_API_RATE_PER_MINUTE`); 15 s request deadline; 1 MB JSON-only bodies with unknown fields rejected.
+17. Automation API audit: `api_auth_failed`, `api_forbidden`, `api_rate_limited` and `api_call` (every mutating call and every sensitive read) with `key_id`, `key_name`, `principal`; the domain events (`admin_user_locked`, …) are written too, with `via=api`.
 
 Full threat model: [docs/threat-model.md](docs/threat-model.md), controls: [docs/security.md](docs/security.md).
 
@@ -95,4 +104,5 @@ Develop on the designated branch (cloud sessions: `claude/<name>`); push often; 
 - [ ] `gofmt`, `go vet`, `go test -race ./...` clean.
 - [ ] `npm test`, `npm run check:sync` pass; `node tests/ui/run.mjs` passes **and you looked at the screenshots** (light, dark, phone).
 - [ ] New behaviour has tests; docs in `docs/` updated; `deploy/.env.sample` updated for new settings.
+- [ ] Automation API changes: `Catalog`, routes and `docs/automation-api.md` agree (the catalog tests fail otherwise), and nothing returned is derived from vault content.
 - [ ] No secrets, keys, databases or logs staged.

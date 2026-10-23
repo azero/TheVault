@@ -21,6 +21,12 @@ type Event struct {
 	UA      string
 	Outcome string // "success" | "failure" | ""
 	Details map[string]string
+
+	// Optional overrides for what SkyNet receives (the local audit row is unaffected). Category replaces the default
+	// derived from Name (the automation API reports one api_call event in the natural category of each resource);
+	// User replaces the person shown on the event (for example "key:nightly-report" for a service key, which has no email).
+	Category string
+	User     string
 }
 
 type Auditor struct {

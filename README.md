@@ -16,6 +16,7 @@ It is **zero-knowledge**: everything is encrypted in the browser with keys deriv
 * **Spaces**: share items with a team. Per-person keys, owner / editor / viewer roles, signed key sharing with fingerprints, and mandatory key rotation when someone is removed.
 * **Chrome extension**: fills on your click or `Ctrl+Shift+L`, only on an exact match of the saved website, never into hidden fields or foreign frames, offers to save and update logins, copies codes, locks itself, works offline from an encrypted copy.
 * **Generator** (passwords and passphrases), **password health** (weak, reused, old, insecure, expiring), **import** from Chrome, Bitwarden, 1Password and LastPass, **encrypted export**.
+* **Automation API** (optional, off by default): scripts with a ClosedDoor API key can read health and the audit log and lock accounts or end sessions, with per-key permissions. It cannot reach any vault content, by design ([docs/automation-api.md](docs/automation-api.md)).
 * **Protection**: ClosedDoor sign-in, a separate master password, throttled unlocking with lockouts, a recovery key, device list with remote sign-out, per-person activity log, administrator tools that only see metadata, and every security event streamed to SkyNet, which can also tell TheVault to block an address (signed commands, never-block list).
 
 ## Run it (Portainer / Docker)
@@ -53,7 +54,8 @@ docs/         architecture, crypto, security, threat model, API, SkyNet, extensi
 | [architecture](docs/architecture.md) | components, data layout, request flow |
 | [crypto](docs/crypto.md) | key hierarchy, formats, what the server can and cannot see |
 | [security](docs/security.md) / [threat model](docs/threat-model.md) | controls, audit events, attackers considered, honest limits |
-| [api](docs/api.md) | every endpoint |
+| [api](docs/api.md) | every endpoint of the web app and extension |
+| [automation API](docs/automation-api.md) | optional REST API for scripts (ClosedDoor API keys): health, accounts, sessions, audit log; never vault content |
 | [skynet](docs/skynet.md) | events, detection rules, signed block commands |
 | [extension](docs/extension.md) | install, autofill rules, permissions, sign-in flow |
 | [operations](docs/operations.md) | settings, backup, upgrade, admin tasks, troubleshooting |

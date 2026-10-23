@@ -37,6 +37,12 @@ type Config struct {
 	SkyNetHost        string // the "host" field on events
 	ResponseAllowlist string // CIDRs/IPs that SkyNet may never make us block
 
+	// Automation API (docs/automation-api.md): off unless enabled. It verifies ClosedDoor API keys with the same
+	// confidential client the sign-in uses. It has no CORS and no cookies.
+	APIEnabled       bool
+	APICacheSeconds  int // how long a ClosedDoor answer may be reused (0 = ask every time; advice: at most 30)
+	APIRatePerMinute int // per key
+
 	// Policy
 	AuditRetentionDays int
 	MaxItemsPerUser    int
@@ -87,6 +93,15 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, err
 	}
 	c.AllowPlainExport = getenv("VAULT_DISABLE_PLAIN_EXPORT") != "1"
+	if c.APIEnabled, err = boolEnv(getenv, "VAULT_API_ENABLED"); err != nil {
+		return nil, err
+	}
+	if c.APICacheSeconds, err = intEnv(getenv, "VAULT_API_CACHE_SECONDS", 0, 0, 300); err != nil {
+		return nil, err
+	}
+	if c.APIRatePerMinute, err = intEnv(getenv, "VAULT_API_RATE_PER_MINUTE", 120, 1, 100000); err != nil {
+		return nil, err
+	}
 
 	u, err := url.Parse(c.PublicURL)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.Path != "" {
@@ -97,6 +112,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	c.SecureCookie = u.Scheme == "https"
 
+	if c.APIEnabled && (c.OIDCIssuer == "" || c.OIDCClientID == "" || c.OIDCClientSecret == "") {
+		return nil, errors.New("VAULT_API_ENABLED needs VAULT_OIDC_ISSUER, VAULT_OIDC_CLIENT_ID and VAULT_OIDC_CLIENT_SECRET: API keys are verified by ClosedDoor with this application's own credentials")
+	}
 	if c.OIDCIssuer == "" || c.OIDCClientID == "" || c.OIDCClientSecret == "" {
 		return nil, errors.New("VAULT_OIDC_ISSUER, VAULT_OIDC_CLIENT_ID and VAULT_OIDC_CLIENT_SECRET are all required: sign-in is through ClosedDoor")
 	}
@@ -144,6 +162,17 @@ func isLoopback(h string) bool {
 	}
 	ip := net.ParseIP(h)
 	return ip != nil && ip.IsLoopback()
+}
+
+// boolEnv reads a switch: true/1/yes/on or false/0/no/off (any case); empty means off.
+func boolEnv(getenv func(string) string, key string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(getenv(key))) {
+	case "", "0", "false", "no", "off":
+		return false, nil
+	case "1", "true", "yes", "on":
+		return true, nil
+	}
+	return false, fmt.Errorf("%s must be true or false", key)
 }
 
 func intEnv(getenv func(string) string, key string, def, min, max int) (int, error) {

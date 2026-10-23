@@ -16,12 +16,19 @@
 | `VAULT_AUDIT_RETENTION_DAYS` | 365 | |
 | `VAULT_MAX_ITEMS_PER_USER` | 20000 | |
 | `VAULT_DISABLE_PLAIN_EXPORT` | empty | `1` removes plain JSON/CSV export |
+| `VAULT_API_ENABLED` | off | `true` turns on the [automation API](automation-api.md) (ClosedDoor API keys for scripts). Needs the three `VAULT_OIDC_*` variables, which the sign-in already requires |
+| `VAULT_API_CACHE_SECONDS` | 0 | reuse ClosedDoor's answer about a key this long (0 = ask every time; at most 300; advice 30 or less: a revoked key keeps working that long) |
+| `VAULT_API_RATE_PER_MINUTE` | 120 | automation API requests per key per minute |
 
 Configuration errors stop the server at start-up with a message that names the variable.
 
 ## ClosedDoor setup
 
 *Admin → Applications → Register*: **confidential**; redirect URI `https://<vault>/auth/callback`; post-logout URI `https://<vault>/login`. Grant access to everyone who may use the vault (everyone granted is a member). Add the role label `admin` for vault administrators. Nothing else is needed: scopes are `openid profile email`.
+
+### Automation API (optional)
+
+To let scripts administer TheVault (health checks, offboarding, incident response, audit export): set `VAULT_API_ENABLED=true`, then in ClosedDoor open *Admin → Applications → TheVault → API permissions* and paste the output of `docker exec thevault thevault api-scopes` (the same block is in [automation-api.md](automation-api.md)); create a key under *Admin → API keys* with the permissions it needs. The API never exposes vault content. Set `VAULT_TRUSTED_IP_HEADER` behind a proxy so the failure throttle sees real client addresses. In SkyNet, watch `api_auth_failed`, `api_forbidden`, `api_rate_limited` and `api_call`.
 
 ## First start
 
@@ -62,4 +69,8 @@ Pull the new image and redeploy. Migrations are append-only and run at start-up.
 | Extension: "This sign-in request is not valid" | the extension id is not in `VAULT_EXTENSION_IDS` |
 | Extension: cannot reach the server | the address must be https (or localhost) and reachable from the browser; CORS is only granted to ids in `VAULT_EXTENSION_IDS` |
 | Everyone is rate limited or blocked together | `VAULT_TRUSTED_IP_HEADER` is not set behind a proxy, so everyone shares the proxy's address |
+| API calls answer 503 `authentication_unavailable` | TheVault cannot reach `VAULT_OIDC_ISSUER`, or ClosedDoor rejected the app's client id/secret (the log says which; the response never does) |
+| API calls answer 401 for a key that exists | the key is expired, revoked, or not granted TheVault in ClosedDoor; or the value is not a `cdk_` key (extension tokens and access tokens are refused) |
+| API calls answer 403 `forbidden` for a user key | the person lacks the `admin` role label for TheVault in ClosedDoor, or is locked in TheVault |
+| API calls answer 429 | the per-key limit (`VAULT_API_RATE_PER_MINUTE`) or 20 failed authentications a minute from that address; see `Retry-After` |
 | SkyNet shows no events | check *Administration → SkyNet* for the last error; the key may have been revoked in SkyNet |

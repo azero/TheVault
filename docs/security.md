@@ -42,9 +42,20 @@ See [extension.md](extension.md): explicit user action for every fill, exact-ori
 * Events leave through a bounded on-disk outbox; nothing from an encrypted blob, no proof, no typed text other than a valid email, is ever in one (`internal/skynet/events.go`, asserted by an e2e test).
 * Commands: Ed25519 signature over `skynet-cmd-v1\n‖payload` with the pinned public key, agent id, expiry, validity window ≤ 15 minutes, id recorded **before** acting (no replay across restarts), only `block_ip`/`unblock_ip`, dry-run honoured, never-block list (loopback, link-local, multicast, unspecified, broadcast, SkyNet itself, `VAULT_RESPONSE_ALLOWLIST`).
 
+## Automation API
+
+Optional (`VAULT_API_ENABLED`), described in [automation-api.md](automation-api.md); the reasoning is in [threat-model.md](threat-model.md#automation-api).
+
+* **No vault content, no key material, in any form.** A key can never be unlocked, so nothing that needs an unlock is reachable, and nothing the server holds in readable form about a vault's content (not even ciphertext, item counts per person, or wrapped keys) is offered. A test seeds a vault and fetches every endpoint with every permission; none of it appears.
+* **Credentials**: ClosedDoor API keys only (`cdk_` + 43 characters, at most 4096 bytes); anything else is refused without contacting ClosedDoor. Each request is verified live (`POST /api/introspect` with the sign-in's client); an unreachable ClosedDoor, or one that rejects TheVault's own credentials, answers 503 (fail closed). An optional cache (`VAULT_API_CACHE_SECONDS`, default 0, max 300, 30 advised) is the only delay in revocation.
+* **Authority = permission AND role**: each route needs one permission (`audit:read`, `users:lock`, …) and, for a user key, the person's `admin` role label (exact match, read live) and an account that is not locked; service keys are bound by permission only. The last active administrator and (for user keys) the caller themselves cannot be locked.
+* **Separate from the web UI**: no cookies, no CSRF token, no CORS (`OPTIONS` is 405). A session cookie or extension token never authenticates the API and an API key never authenticates the web UI.
+* **Throttles**: per key (`VAULT_API_RATE_PER_MINUTE`, default 120, applied before ClosedDoor is asked) and 20 failed authentications per minute per client address (checked before ClosedDoor is asked again). 15 s request deadline, 1 MB JSON bodies, unknown fields rejected.
+* **Audited**: failures, forbidden calls, rate limits, every mutating call and every sensitive read are recorded and sent to SkyNet with the key id and name; the key itself never is (at most 8 characters of a rejected key).
+
 ## Administrators
 
-Administrators can: list people (counts, times), lock and unlock accounts, end sessions, erase a vault (typed confirmation), read the audit log, see SkyNet status. They **cannot** read, list or decrypt any item, and there is no route that could return one. Admin status is re-read from ClosedDoor every five minutes while the access token is valid, and **every admin route requires a fresh token**: once it has expired the role cannot be confirmed, so the admin must lock and unlock (which signs in again) first. Erasing a vault keeps other members' spaces: each is flagged for rotation, one left without an owner promotes its longest-standing member, and the erased person's public keys are retained so the wraps they made stay verifiable until the rotation.
+Administrators can: list people (counts, times), lock and unlock accounts, end sessions, erase a vault (typed confirmation), read the audit log, see SkyNet status. (Through the optional automation API a key can do the same minus erasing a vault, and minus the per-person item and space counts.) They **cannot** read, list or decrypt any item, and there is no route that could return one. Admin status is re-read from ClosedDoor every five minutes while the access token is valid, and **every admin route requires a fresh token**: once it has expired the role cannot be confirmed, so the admin must lock and unlock (which signs in again) first. Erasing a vault keeps other members' spaces: each is flagged for rotation, one left without an owner promotes its longest-standing member, and the erased person's public keys are retained so the wraps they made stay verifiable until the rotation.
 
 ## Audit events
 
@@ -57,7 +68,8 @@ Written to `audit_log` (365 days by default) and sent to SkyNet as `source: thev
 | Data | `sync_full`, `item_created`, `item_updated`, `item_deleted`, `item_purged`, `item_restored`, `items_imported`, `vault_export`, `vault_export_encrypted`, `vault_import_file` |
 | Spaces | `space_created`, `space_deleted`, `space_member_added`, `space_member_removed`, `space_member_role_changed`, `space_left`, `space_key_rotated` |
 | Devices | `session_revoked_by_user`, `sessions_revoked_by_user` |
-| Admin | `admin_user_locked`, `admin_user_unlocked`, `admin_sessions_revoked`, `admin_vault_erased` |
+| Admin | `admin_user_locked`, `admin_user_unlocked`, `admin_sessions_revoked`, `admin_vault_erased` (the first three are also written, with `via=api`, for actions taken through the automation API) |
+| Automation API | `api_auth_failed` (`reason`: `malformed`, `invalid_token`, `unavailable`), `api_forbidden` (`reason`: `scope`, `role`), `api_rate_limited` (`by`: `key`, `ip`), `api_call` (every mutating call and every call to a sensitive read permission; `key_id`, `key_name`, `principal`, `scope`, `method`, `target`, `status`) |
 | Defence | `csrf_failed`, `origin_refused`, `blocked_request`; SkyNet only: `response_applied`, `heartbeat`, `events_dropped` |
 
 Each person can read their own trail under *Settings → Activity*.
@@ -72,4 +84,5 @@ Each person can read their own trail under *Settings → Activity*.
 | Space roles, rotation completeness | `server/internal/e2e/spaces_test.go` |
 | Extension sign-in (PKCE, redirects, replay, renewal, CORS) | `server/internal/e2e/ext_test.go` |
 | SkyNet events and commands | `server/internal/e2e/skynet_test.go` |
+| Automation API: authentication, scopes, roles, throttles, no CORS or cookies, no vault content, events without secrets | `server/internal/automation/automation_test.go`, `server/internal/e2e/apikeys_test.go` |
 | CSP, Trusted Types, storage hygiene, accessibility | `tests/ui/run.mjs` |

@@ -38,6 +38,10 @@ Replace the container image and nothing is lost: migrations are append-only and 
 2. The handler validates the *shape* of what it received (ids, sizes, base64url, envelope format, enums) and calls `Store`, which enforces ownership, membership, role and revisions in one transaction.
 3. Security-relevant outcomes go to `audit.Auditor`: a row in `audit_log` and, in parallel, a SkyNet event.
 
+## Automation API
+
+`internal/automation` is a second, separate front door for scripts (`VAULT_API_ENABLED`, off by default): `/api/v1/whoami`, `/status`, `/users`, `/audit`, … authenticated by ClosedDoor API keys that are verified live (`POST {issuer}/api/introspect`, with the sign-in's own client). It has no cookie, no CSRF token and no CORS, never touches the unlock machinery, and exposes no vault content because a key can never be unlocked. See [automation-api.md](automation-api.md).
+
 ## Sync model
 
 Every write bumps one global counter (`seq`). A client remembers the highest `seq` it saw and asks for `GET /sync?since=N`; deletes are tombstones (`purged`) so other devices learn about them. A write carries the `seq` the client last saw for that item (`base_seq`); a stale one gets `409` with the current copy. Spaces are always returned in full (names, role, wrap, members). Space rotation is one atomic request.

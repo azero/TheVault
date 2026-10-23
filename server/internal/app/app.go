@@ -11,6 +11,7 @@ import (
 	"github.com/azero/thevault/server/internal/api"
 	"github.com/azero/thevault/server/internal/audit"
 	"github.com/azero/thevault/server/internal/auth"
+	"github.com/azero/thevault/server/internal/automation"
 	"github.com/azero/thevault/server/internal/config"
 	"github.com/azero/thevault/server/internal/httpx"
 	"github.com/azero/thevault/server/internal/keys"
@@ -64,6 +65,14 @@ func New(cfg *config.Config, st *store.Store, version string) (*App, error) {
 	mux := http.NewServeMux()
 	webSrv.Routes(mux)
 	apiSrv.Routes(mux)
+	if cfg.APIEnabled {
+		// Off by default: when disabled none of these routes exist. It uses the sign-in's own ClosedDoor client to verify keys.
+		auto, err := automation.New(automation.Options{Cfg: cfg, Store: st, Audit: aud, Version: version, SkyNetStatus: skyStatus})
+		if err != nil {
+			return nil, err
+		}
+		auto.Routes(mux)
+	}
 	var h http.Handler = httpx.SecureHeaders(cfg.SecureCookie, mux)
 	h = a.denyMiddleware(h)
 	a.Handler = h
