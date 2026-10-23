@@ -1,0 +1,16 @@
+{{define "bodyclass"}}auth-body{{end}}
+{{define "content"}}
+<main id="main" class="auth-wrap">
+  <section class="auth-card">
+    <h1 class="logo-h"><img class="logo" src="/static/brand/thevault-logo.webp" width="760" height="253" alt="TheVault"></h1>
+    <p class="lead">Passwords, API keys and secrets for the team. Encrypted on your device before they ever reach the server.</p>
+    {{if .Msg}}<p class="alert alert-info" role="status">{{.Msg}}</p>{{end}}
+    <p><a class="btn btn-primary btn-block" href="/auth/login?return=/">Sign in with ClosedDoor</a></p>
+    <ul class="assure">
+      <li><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-shield"/></svg><span>Zero-knowledge: the server cannot read your vault.</span></li>
+      <li><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-key"/></svg><span>You will set a separate master password on first use.</span></li>
+    </ul>
+  </section>
+  <p class="foot muted">TheVault {{.Version}}</p>
+</main>
+{{end}}

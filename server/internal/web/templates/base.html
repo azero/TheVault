@@ -1,0 +1,19 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="same-origin">
+<title>{{.Title}} · TheVault</title>
+<script src="/static/js/theme.js"></script>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="/static/brand/favicon.png" type="image/png" sizes="64x64">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+</head>
+<body class="{{template "bodyclass" .}}">
+<a class="skip" href="#main">Skip to content</a>
+{{template "content" .}}
+</body>
+</html>{{end}}
+{{define "bodyclass"}}{{end}}
