@@ -43,6 +43,12 @@ func (s *Server) authCallback(w http.ResponseWriter, r *http.Request) {
 			extRedirect(w, r, lr.Ext, url.Values{"error": {"login_required"}})
 			return
 		}
+		// ClosedDoor has no session for this browser any more: end ours too, otherwise /login would bounce
+		// straight back to the unlock screen and the person could never get the sign-in page.
+		if ck, cerr := r.Cookie(s.cookie); cerr == nil {
+			s.Store.DeleteSessionByHash(ctx, store.Hash(ck.Value))
+			http.SetCookie(w, &http.Cookie{Name: s.cookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.Cfg.SecureCookie, SameSite: http.SameSiteLaxMode})
+		}
 		http.Redirect(w, r, "/login?msg="+url.QueryEscape("Your session ended. Sign in again."), http.StatusFound)
 		return
 	case err != nil:
