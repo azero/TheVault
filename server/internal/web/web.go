@@ -121,13 +121,20 @@ func (s *Server) ErrorPage(w http.ResponseWriter, status int, msg string) {
 	s.render(w, "error", status, page{Title: "Something went wrong", Msg: msg, Status: status})
 }
 
+var knownMessages = map[string]bool{
+	"Your session ended. Sign in again.":        true,
+	"Your access was removed in ClosedDoor.":    true,
+	"Too many sign-in attempts. Wait a minute.": true,
+}
+
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 	if s.HasSession != nil && s.HasSession(r) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
+	// Only our own messages: /login?msg=... is a link anyone can craft, and free text on our domain is phishing copy.
 	msg := r.URL.Query().Get("msg")
-	if len(msg) > 200 {
+	if !knownMessages[msg] {
 		msg = ""
 	}
 	s.render(w, "login", http.StatusOK, page{Title: "Sign in", Msg: msg})

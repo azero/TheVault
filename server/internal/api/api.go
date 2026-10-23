@@ -364,6 +364,9 @@ func (s *Server) revalidate(c *rc, sess *store.Session) bool {
 			sess.Role = role
 		}
 		s.Store.MarkSessionChecked(ctx, sess.IDHash)
+	case !errors.Is(err, auth.ErrRevoked):
+		// ClosedDoor is unreachable: keep the session, but do not make every request wait for the timeout again.
+		s.Store.MarkSessionChecked(ctx, sess.IDHash)
 	case errors.Is(err, auth.ErrRevoked):
 		s.Store.DeleteSessionByHash(ctx, sess.IDHash)
 		s.Audit.Log(ctx, audit.Event{Name: "session_revoked", Actor: sess.Sub, IP: c.IP, Outcome: "failure", Details: map[string]string{"reason": "sso rejected token", "kind": sess.Kind}})

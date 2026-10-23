@@ -201,7 +201,7 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) (*Resul
 	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(f.State)) != 1 {
 		return nil, ErrBadCallback
 	}
-	if iss := q.Get("iss"); iss != "" && strings.TrimRight(iss, "/") != a.cfg.Issuer { // RFC 9207
+	if strings.TrimRight(q.Get("iss"), "/") != a.cfg.Issuer { // RFC 9207; ClosedDoor always sends it, so a missing one is refused too
 		return nil, ErrBadCallback
 	}
 	if e := q.Get("error"); e != "" {

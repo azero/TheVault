@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -142,5 +143,19 @@ func TestFullSyncReturnsItemsOfNewlyJoinedSpace(t *testing.T) {
 	}
 	if len(full.Items) != 1 {
 		t.Fatalf("full sync items = %d, want 1", len(full.Items))
+	}
+}
+
+// /login?msg= is a link anyone can craft: only our own messages are shown.
+func TestLoginPageShowsOnlyKnownMessages(t *testing.T) {
+	e := newEnv(t)
+	anon := e.newClient()
+	_, body, _ := anon.do("GET", "/login?msg=Call+0800+EVIL+to+verify+your+account", nil, nil)
+	if strings.Contains(string(body), "EVIL") {
+		t.Fatal("arbitrary text was rendered on the sign-in page")
+	}
+	_, body, _ = anon.do("GET", "/login?msg=Your+session+ended.+Sign+in+again.", nil, nil)
+	if !strings.Contains(string(body), "Your session ended") {
+		t.Fatal("our own message was not shown")
 	}
 }
