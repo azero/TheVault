@@ -18,7 +18,7 @@ Binary values are base64url without padding. An *envelope* is `1.<iv>.<ciphertex
 | GET | `/sessions` | the person's browsers and extensions (`id`, `kind`, `label`, `ip`, `last_seen`, `unlocked`, `current`) |
 | DELETE | `/sessions/{id}` | sign one out |
 | POST | `/sessions/revoke-others` | sign out all but this one |
-| GET | `/activity` | the person's own audit trail (newest 100) |
+| GET | `/activity` | the person's own audit trail (newest 100): their own actions and what administrators did to their account |
 | POST 🔓 | `/audit/client` | `{event: vault_export\|vault_export_encrypted\|vault_import_file, count}` (advisory: exports happen in the browser) |
 
 ## Vault keys
@@ -55,7 +55,7 @@ A `space` in `/sync` is `{id, name_blob, key_version, needs_rotation, role, wrap
 | Method | Path | |
 |---|---|---|
 | GET | `/directory?q=` | people with a vault (≥ 2 letters, 10 results): `{sub, name, email, enc_pub, sig_pub}` |
-| GET | `/users/{sub}/keys` | one person's public keys |
+| GET | `/users/{sub}/keys` | one person's public keys (shares the directory search's rate limit) |
 | POST | `/spaces` | `{id, name_blob, wrap:{eph, ct, sig}}` (the creator is the first owner) |
 | PUT | `/spaces/{id}` | `{name_blob}` (owner) |
 | DELETE | `/spaces/{id}` | owner; items become tombstones |

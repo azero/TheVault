@@ -73,8 +73,25 @@ export async function signIn({ silent = false } = {}) {
   const code = back.searchParams.get('code')
   if (!code) throw new ExtError('bad_response', 'The sign-in response had no code.')
   const res = await api('POST', '/ext/token', { code, verifier, redirect_uri: redirect, label: await platformLabel() }, { token, noAuth: !token })
+  await adoptAccount(res.user.sub)
   await local.set({ token: res.token, user: res.user })
   return res.user
+}
+
+/**
+ * The offline cache and the unlock key belong to one person. When a different account signs in here (a shared browser
+ * profile, or ClosedDoor switched users behind a silent renewal) neither may be carried over: the new person must not
+ * inherit the previous person's encrypted vault, nor a vault that is still unlocked for them, and their own incremental
+ * sync must not start from the previous person's position. A cache with no recorded owner (written before this check
+ * existed) is trusted only while the previous account is still the one signed in.
+ */
+export async function adoptAccount(sub) {
+  const owner = (await local.get('cacheOwner')) ?? (await local.get('user'))?.sub
+  if (owner !== sub) {
+    await local.remove('cache')
+    await session.remove(['uk', 'unlockedAt', 'offline', 'prompts'])
+  }
+  await local.set({ cacheOwner: sub })
 }
 
 export { normalizeServer }

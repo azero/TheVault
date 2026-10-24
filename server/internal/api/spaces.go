@@ -53,6 +53,10 @@ func (s *Server) directory(c *rc) {
 }
 
 func (s *Server) userKeys(c *rc) {
+	if !s.dirRL.Allow(c.Sess.IDHash) { // same budget as the directory search: both reveal who has a vault
+		c.fail(http.StatusTooManyRequests, "rate_limited", "Too many searches.")
+		return
+	}
 	sub := c.R.PathValue("sub")
 	if !reSub.MatchString(sub) {
 		c.fail(http.StatusBadRequest, "bad_request", "Bad user id.")

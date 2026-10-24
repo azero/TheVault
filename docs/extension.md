@@ -25,7 +25,7 @@ background ─▶ POST /api/v1/ext/token {code, verifier, redirect_uri}  ─▶ 
 
 | Where | What |
 |---|---|
-| `chrome.storage.local` | vault address, bearer token, **encrypted** vault cache (same ciphertext as the server holds), sealed private keys, KDF parameters (for offline unlock), preferences, "never save here" hosts, pinned sharer fingerprints |
+| `chrome.storage.local` | vault address, bearer token, **encrypted** vault cache (tagged with the account it belongs to; a different account signing in on this browser drops it, together with the unlock key) (same ciphertext as the server holds), sealed private keys, KDF parameters (for offline unlock), preferences, "never save here" hosts, pinned sharer fingerprints |
 | `chrome.storage.session` (memory only, cleared on browser close, not visible to content scripts) | the unlock key, "save this login?" prompts (120 s), last activity |
 | Service worker memory | the decrypted index while the worker lives (Chrome discards it after ~30 s idle) |
 | Nowhere | the master password, decrypted items on disk |

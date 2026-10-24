@@ -60,7 +60,7 @@ Written to `audit_log` (365 days by default) and sent to SkyNet as `source: thev
 | Admin | `admin_user_locked`, `admin_user_unlocked`, `admin_sessions_revoked`, `admin_vault_erased` |
 | Defence | `csrf_failed`, `origin_refused`, `blocked_request`; SkyNet only: `response_applied`, `heartbeat`, `events_dropped` |
 
-Each person can read their own trail under *Settings → Activity*.
+Each person can read their own trail under *Settings → Activity*: the events where they were the actor, plus what an administrator did to their account (`admin_*` events whose target is them; the administrator's address and browser are not shown). The target of every other event is an item, space or session id chosen by the caller, and ids have the same shape as a ClosedDoor `sub`, so it is never used to decide whose feed a row belongs to (`Store.ListUserAudit`); otherwise anyone could plant rows in a colleague's feed by naming an item after them. Administrators see the whole log and can filter it by account.
 
 ## Where it is tested
 
@@ -70,6 +70,8 @@ Each person can read their own trail under *Settings → Activity*.
 | Phishing URL cases | `tests/js/urlmatch.test.mjs`, `tests/ext/run.mjs` |
 | Throttling, lockout, SSO revocation and outage, CSRF/origin, sessions | `server/internal/e2e/api_test.go` |
 | Space roles, rotation completeness | `server/internal/e2e/spaces_test.go` |
+| Per-person isolation (activity feed, sessions, items and spaces after leaving, lookup throttle) | `server/internal/e2e/isolation_test.go` |
+| Extension cache and unlock key do not carry over to another account | `tests/js/ext-account.test.mjs` |
 | Extension sign-in (PKCE, redirects, replay, renewal, CORS) | `server/internal/e2e/ext_test.go` |
 | SkyNet events and commands | `server/internal/e2e/skynet_test.go` |
 | CSP, Trusted Types, storage hygiene, accessibility | `tests/ui/run.mjs` |

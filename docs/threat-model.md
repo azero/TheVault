@@ -33,7 +33,7 @@ The *contents* of everyone's vault (secrets, names, URLs, notes) and the *availa
 
 1. **Server-delivered JavaScript** (above). Mitigations: strict CSP, no third-party code, pinned image, extension for sensitive use.
 2. **Key substitution before first contact.** A malicious server could present its own public key when two people first share a space. Mitigation: TOFU pinning plus visible fingerprints; compare them out of band for sensitive spaces.
-3. **Metadata is visible** (counts, timing, who shares with whom).
+3. **Metadata is visible** (counts, timing, who shares with whom). Two cases worth knowing: every member of a space sees the other members' name, e-mail and public keys (needed to verify wraps), and the change counter (`seq`, returned by `/sync` and on every write) is global to the server, so a signed-in person can infer how much write activity there is overall, though not whose or what. Any signed-in person can search the directory of people who have a vault (name, e-mail, public keys; rate limited) because that is how sharing finds a colleague.
 4. **No 2FA on the master password itself.** ClosedDoor sign-in is the first factor; the master password is the second, independent secret.
 5. **ClosedDoor has no refresh tokens or back-channel logout.** Revocation reaches TheVault within five minutes while the SSO token is valid; an unlocked session may outlive its token by up to two hours (then must unlock again), and new unlocks need a fresh token.
 6. **Clipboard**: clearing is time-based and unconditional once the delay passes.

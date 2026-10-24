@@ -27,17 +27,29 @@ func (s *Store) InsertAudit(ctx context.Context, r AuditRow) {
 		time.Now().Unix(), clip(r.Event, 64), clip(r.Actor, 200), clip(r.Target, 200), clip(r.IP, 64), clip(r.UserAgent, 300), clip(r.Outcome, 16), clip(r.Details, 2000))
 }
 
-// ListAudit returns the newest rows, optionally only those where actor == sub (a user's own security activity).
+// ListUserAudit is the trail a person may read about themselves: what they did, and what an administrator did to their
+// account. The target of a row is an item, space or session id chosen by the caller, and ids have the same shape as a
+// ClosedDoor sub, so a match on target is only trusted for the admin_* events, which only administrators can produce
+// and whose target is always a user. Otherwise anyone could plant rows in another person's feed by naming an item
+// after them.
+func (s *Store) ListUserAudit(ctx context.Context, sub string, limit int) ([]AuditRow, error) {
+	return s.listAudit(ctx, `WHERE actor = ? OR (target = ? AND event LIKE 'admin\_%' ESCAPE '\') `, []any{sub, sub}, limit)
+}
+
+// ListAudit returns the newest rows, optionally only those where actor == sub or target == sub (administrators' view of
+// one account). People reading their own trail use ListUserAudit.
 func (s *Store) ListAudit(ctx context.Context, actor string, limit int) ([]AuditRow, error) {
+	if actor != "" {
+		return s.listAudit(ctx, `WHERE actor = ? OR target = ? `, []any{actor, actor}, limit)
+	}
+	return s.listAudit(ctx, "", nil, limit)
+}
+
+func (s *Store) listAudit(ctx context.Context, where string, args []any, limit int) ([]AuditRow, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	q := `SELECT id,created_at,event,actor,target,ip,user_agent,outcome,details FROM audit_log `
-	var args []any
-	if actor != "" {
-		q += `WHERE actor = ? OR target = ? `
-		args = append(args, actor, actor)
-	}
+	q := `SELECT id,created_at,event,actor,target,ip,user_agent,outcome,details FROM audit_log ` + where
 	rows, err := s.DB.QueryContext(ctx, q+`ORDER BY id DESC LIMIT `+itoa(limit), args...)
 	if err != nil {
 		return nil, err

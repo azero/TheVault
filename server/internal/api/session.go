@@ -139,7 +139,7 @@ func (s *Server) revokeOthers(c *rc) {
 }
 
 func (s *Server) activity(c *rc) {
-	rows, err := s.Store.ListAudit(c.R.Context(), c.Sess.Sub, 100)
+	rows, err := s.Store.ListUserAudit(c.R.Context(), c.Sess.Sub, 100)
 	if err != nil {
 		s.storeErr(c, err)
 		return
