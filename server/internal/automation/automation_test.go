@@ -96,7 +96,7 @@ func TestEveryRouteScopeIsInTheCatalogAndEveryCatalogScopeIsUsed(t *testing.T) {
 func TestNoRouteTouchesVaultContent(t *testing.T) {
 	s := &Server{}
 	for _, rt := range s.routes() {
-		for _, bad := range []string{"item", "vault", "sync", "space", "folder", "key", "blob", "export", "secret"} {
+		for _, bad := range []string{"item", "vault", "sync", "space", "folder", "key", "blob", "export", "secret", "tag", "note", "wrap", "kdf", "cipher", "salt", "proof", "recover", "member", "rotat", "director", "backup/", "download", "password"} {
 			if strings.Contains(strings.ToLower(rt.Pattern), bad) {
 				t.Errorf("%s %s: the automation API must expose no vault content, and %q suggests it does", rt.Method, rt.Pattern, bad)
 			}
@@ -702,5 +702,38 @@ func TestWindow(t *testing.T) {
 	}
 	if retrySeconds(0) != 1 || retrySeconds(1500*time.Millisecond) != 2 {
 		t.Fatal("retrySeconds")
+	}
+}
+
+func TestAuditDetailsCarryNoCountsOrKDFParameters(t *testing.T) {
+	cases := []struct{ event, in, want string }{
+		{"sync_full", "items=412 kind=web", "kind=web"},
+		{"space_deleted", "items=9", ""},
+		{"space_key_rotated", "items=30 members=3 version=4", "members=3"},
+		{"items_imported", "count=500", ""},
+		{"vault_export", "count=12", ""},
+		{"vault_created", "iterations=600000", ""},
+		{"ext_device_added", "label=items=5 renewed=false replaced=false", "label=items=5 renewed=false replaced=false"}, // a client-chosen label is never touched
+		{"space_member_added", "member=abc role=viewer", "member=abc role=viewer"},
+	}
+	for _, c := range cases {
+		if got := redactDetails(c.event, c.in); got != c.want {
+			t.Errorf("%s %q: got %q want %q", c.event, c.in, got, c.want)
+		}
+	}
+}
+
+func TestSkyNetErrorsAreReducedToAFixedVocabulary(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "",
+		`send to skynet: Post "https://skynet.corp.example:8443/api/v1/ingest": dial tcp 10.1.2.3:8443: connect: connection refused`: "unreachable",
+		"skynet answered HTTP 503":                     "skynet answered HTTP 503",
+		"skynet refused our key (HTTP 401): re-enroll": "skynet refused our key",
+		`Post "https://x": context deadline exceeded`:  "timeout",
+		"skynet commands: HTTP 502":                    "skynet answered HTTP 502",
+	} {
+		if got := coarseError(in); got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
 	}
 }

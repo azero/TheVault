@@ -127,12 +127,40 @@ func (s *Server) skynetStatus(c *call) map[string]any {
 	}
 	m, _ := s.SkyNetStatus(c.R.Context()).(map[string]any)
 	out := map[string]any{"enabled": m != nil}
-	for _, k := range []string{"last_send", "last_error", "sent", "outbox", "dropped", "commands_enabled", "last_command", "command_error"} {
+	for _, k := range []string{"last_send", "sent", "outbox", "dropped", "commands_enabled", "last_command"} {
 		if v, ok := m[k]; ok {
 			out[k] = v
 		}
 	}
+	// The raw error text of an HTTP client names the SkyNet address and the resolver or interface it failed on, so only a
+	// coarse reason is passed on.
+	for _, k := range []string{"last_error", "command_error"} {
+		if v, ok := m[k]; ok {
+			s, _ := v.(string)
+			out[k] = coarseError(s)
+		}
+	}
 	return out
+}
+
+var reHTTPStatus = regexp.MustCompile(`HTTP (\d{3})`)
+
+// coarseError reduces an error from the SkyNet client to a fixed vocabulary: "" (none), "skynet answered HTTP <code>",
+// "skynet refused our key", "timeout" or "unreachable".
+func coarseError(e string) string {
+	switch {
+	case e == "":
+		return ""
+	case strings.Contains(e, "refused our key"):
+		return "skynet refused our key"
+	}
+	if m := reHTTPStatus.FindStringSubmatch(e); m != nil {
+		return "skynet answered HTTP " + m[1]
+	}
+	if strings.Contains(e, "timeout") || strings.Contains(e, "deadline exceeded") {
+		return "timeout"
+	}
+	return "unreachable"
 }
 
 func (s *Server) status(c *call) {
@@ -465,9 +493,40 @@ func (s *Server) listAudit(c *call) {
 	}
 	for i := range rows {
 		rows[i].Target = shortTarget(rows[i].Event, rows[i].Target)
-		rows[i].Details = reSpaceInDetails.ReplaceAllString(rows[i].Details, "${1}")
+		rows[i].Details = redactDetails(rows[i].Event, reSpaceInDetails.ReplaceAllString(rows[i].Details, "${1}"))
 	}
 	c.json(http.StatusOK, map[string]any{"events": rows, "next_cursor": next})
+}
+
+// Audit rows of these events carry numbers the server knows about a vault: how many items a person holds or moved
+// (sync_full, imports and exports, deleting or re-keying a space), and the KDF iteration count chosen at vault creation.
+// The administration screen shows the rows as they are; this API promises no per-person item or space counts and no KDF
+// parameters, so those details are removed here. The details of these events are written by the server from numbers
+// only, so dropping tokens by key cannot be fooled by text a client chose.
+var redactedDetails = map[string]map[string]bool{
+	"sync_full":              {"items": true},
+	"items_imported":         {"count": true},
+	"vault_export":           {"count": true},
+	"vault_export_encrypted": {"count": true},
+	"vault_import_file":      {"count": true},
+	"space_deleted":          {"items": true},
+	"space_key_rotated":      {"items": true, "version": true},
+	"vault_created":          {"iterations": true},
+}
+
+func redactDetails(event, details string) string {
+	drop := redactedDetails[event]
+	if drop == nil || details == "" {
+		return details
+	}
+	kept := []string{}
+	for _, f := range strings.Fields(details) {
+		if k, _, ok := strings.Cut(f, "="); ok && drop[k] {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return strings.Join(kept, " ")
 }
 
 // shortTarget shortens the id of a vault object (an item or a space) to 12 characters, as the administration screen

@@ -24,11 +24,16 @@ type Options struct {
 type Alerts struct {
 	o      Options
 	failed *auth.Limiter // unlock_failed: one message per person per 15 minutes, so an attacker cannot use us to spam someone
-	wg     sync.WaitGroup
+
+	// space_invitation can be caused by any colleague who owns a space (the add itself is allowed to everyone with a vault),
+	// so what reaches one person is capped both per sender and in total. The addition still happens and shows in the app.
+	invitedBy *auth.Limiter // per sender and recipient
+	invitedTo *auth.Limiter // per recipient, whoever sent it
+	wg        sync.WaitGroup
 }
 
 func New(o Options) *Alerts {
-	return &Alerts{o: o, failed: auth.NewLimiter(1, 15*time.Minute)}
+	return &Alerts{o: o, failed: auth.NewLimiter(1, 15*time.Minute), invitedBy: auth.NewLimiter(2, time.Hour), invitedTo: auth.NewLimiter(5, time.Hour)}
 }
 
 // Wait blocks until background lookups (space owners) are finished; the app calls it on shutdown before the store closes.
@@ -73,6 +78,9 @@ func (a *Alerts) Sink(e audit.Event) {
 			role := e.Details["role"]
 			if role != "owner" && role != "editor" && role != "viewer" {
 				role = "member"
+			}
+			if !a.invitedBy.Allow(e.Actor+">"+e.Details["member"]) || !a.invitedTo.Allow(e.Details["member"]) {
+				return
 			}
 			a.send(SpaceInvitation, notify.Notice, e.Details["member"], "You were added to a shared space",
 				"A colleague added you to a shared space as "+role+". Unlock TheVault to see it.",

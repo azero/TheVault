@@ -16,7 +16,7 @@ TheVault is zero-knowledge ([crypto.md](crypto.md)): the server stores only ciph
 * it cannot create or delete accounts or change roles (that is ClosedDoor's job), and it cannot add or remove SkyNet blocks (read-only view);
 * it cannot create or restore backups (`thevault backup` is a command on the host; the API only lists snapshot names, sizes and times).
 
-What is left is **administration and operations**: health, accounts, sessions, the audit log, SkyNet's block list. Everything it returns is metadata the administration screens already show an administrator; nothing there is vault content, and the reasoning is in [threat-model.md](threat-model.md#automation-api). Compromise of an API key therefore cannot disclose a secret. It can disrupt (lock accounts, end sessions) and it can disclose personal data and the audit trail, which is why those permissions are separate and audited.
+What is left is **administration and operations**: health, accounts, sessions, the audit log, SkyNet's block list. Everything it returns is metadata the administration screens or the audit log already show an administrator (the per-person session list is the one view no screen offers; it holds what the audit rows hold); nothing there is vault content, and the reasoning is in [threat-model.md](threat-model.md#automation-api). Compromise of an API key therefore cannot disclose a secret. It can disrupt (lock accounts, end sessions) and it can disclose personal data and the audit trail, which is why those permissions are separate and audited.
 
 ## Turn it on
 
@@ -117,7 +117,7 @@ Permission `status:read`.
 }
 ```
 
-`status` is `degraded` (with `problems` such as `skynet_events_failing`) when SkyNet is configured but not accepting events or commands. `counts` are server-wide totals; there are deliberately no item or space counts. `skynet` is `{"enabled": false}` when SkyNet is not configured, and never contains the agent id, the URL or the block list. `backups` lists at most the 20 newest snapshot files' names, sizes and times, never paths or contents.
+`status` is `degraded` (with `problems` such as `skynet_events_failing`) when SkyNet is configured but not accepting events or commands. `counts` are server-wide totals; there are deliberately no item or space counts. `skynet` is `{"enabled": false}` when SkyNet is not configured, and never contains the agent id, the URL or the block list. `last_error` and `command_error` are a fixed vocabulary, not the client's error text (which names the SkyNet address): empty, `unreachable`, `timeout`, `skynet answered HTTP <code>` or `skynet refused our key`. `backups` lists at most the 20 newest snapshot files' names, sizes and times, never paths or contents.
 
 ### GET /api/v1/users
 
@@ -203,7 +203,7 @@ Permission `audit:read`. The same rows the administration screen shows, newest f
 }
 ```
 
-`next_cursor` is the smallest `id` of the page, or `null` at the end. Ids of items and spaces in `target` (and `vault=space:<id>` in `details`) are shortened to 12 characters, exactly as the administration screen shows them. Actions taken through this API appear twice: the ordinary event the person sees (`admin_user_locked`, …, with `via=api`) and an `api_call` row. Reading the audit log is itself recorded.
+`next_cursor` is the smallest `id` of the page, or `null` at the end. Ids of items and spaces in `target` (and `vault=space:<id>` in `details`) are shortened to 12 characters, exactly as the administration screen shows them. The numbers the server knows about a vault are removed from `details`, which the screen still shows: `items=` on `sync_full`, `space_deleted` and `space_key_rotated` (and `version=` on the latter), `count=` on `items_imported`, `vault_export`, `vault_export_encrypted` and `vault_import_file`, and `iterations=` (the KDF parameter) on `vault_created`, so that the log cannot be used to read off how many items a person has. Actions taken through this API appear twice: the ordinary event the person sees (`admin_user_locked`, …, with `via=api`) and an `api_call` row. Reading the audit log is itself recorded.
 
 ### GET /api/v1/response/blocks
 

@@ -46,7 +46,7 @@ Sent through Beacon with `source: thevault`. Declared once at start (the catalog
 | `master_password_changed` | critical | yes | the master password was changed | that person |
 | `recovery_key_used` | critical | yes | the recovery key reset the master password | that person |
 | `unlock_failed` | important | yes | from the third wrong master password since the last successful unlock; **at most one message per person per 15 minutes**, so an attacker cannot use TheVault to spam someone | that person |
-| `space_invitation` | notice | no | someone added the person to a shared space | the person added |
+| `space_invitation` | notice | no | someone added the person to a shared space; **at most two messages per sender and five in all per person per hour** (the addition itself always happens and shows in the app) | the person added |
 | `member_removed_rotate` | important | no | a member was removed from, or left, a space the person owns; the key must be rotated | the space's owners |
 | `admin_security` | important | no | SkyNet's signed `block_ip` was applied, an administrator locked an account, or erased a vault | the Beacon group `VAULT_NOTIFY_ADMIN_GROUP` (default `admins`) |
 
