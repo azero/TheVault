@@ -461,3 +461,18 @@ select.sort { width: auto; min-height: 2rem; padding: .2rem .5rem; font-size: .8
 .strength { margin-top: .5rem; max-width: 18rem; }
 .strength .badge { margin-top: .4rem; }
 .list-pane > .content { padding: .75rem 1rem 0; }
+
+/* ---------- Browser extension: install page, prompt, extension settings ---------- */
+.ext-promo { align-items: center; flex-wrap: wrap; }
+.ext-promo > div:first-of-type { flex: 1; min-width: 14rem; }
+.ext-steps { margin-bottom: 0; padding-left: 1.25rem; display: grid; gap: .6rem; }
+.ext-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+.ext-browsers { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .4rem; }
+.ext-browsers li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; padding: .45rem .65rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.ext-browsers li.you { border-color: var(--accent); background: var(--accent-soft); }
+.ext-browsers .name { font-weight: 600; flex: 1 1 8rem; display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; }
+.ext-browsers code { flex: 0 1 auto; }
+.ext-hash { overflow-wrap: anywhere; word-break: break-all; }
+.opt-section + .opt-section { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+.opt-section > h3 { font-size: .9375rem; }
+.opt-about { margin-top: 1.5rem; }

@@ -56,7 +56,7 @@ func New(cfg *config.Config, st *store.Store, version string) (*App, error) {
 
 	var webSrv *web.Server
 	var apiSrv *api.Server
-	webSrv, err = web.New(web.Options{Version: version, HasSession: func(r *http.Request) bool { return apiSrv != nil && apiSrv.HasWebSession(r) }})
+	webSrv, err = web.New(web.Options{Version: version, PublicURL: cfg.PublicURL, HasSession: func(r *http.Request) bool { return apiSrv != nil && apiSrv.HasWebSession(r) }})
 	if err != nil {
 		return nil, err
 	}

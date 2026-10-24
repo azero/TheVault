@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"crypto/sha256"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -204,3 +205,52 @@ func TestExtensionLockedUserDenied(t *testing.T) {
 }
 
 var _ = time.Now
+
+// The first-install mistake is an extension id the server has not been told about. The sign-in window must say so (and name
+// the id so the administrator can add it), while an address that is not a chromiumapp.org redirect gets no such hint.
+func TestExtensionSignInExplainsAnUnregisteredId(t *testing.T) {
+	e := newEnv(t)
+	other := strings.Repeat("a", 32)
+	get := func(redirect string) (int, string) {
+		c := e.newClient()
+		resp, err := c.hc.Get(e.srv.URL + "/ext/auth?code_challenge_method=S256&code_challenge=" + challengeFor("v") + "&state=st4te&redirect_uri=" + url.QueryEscape(redirect))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	st, body := get("https://" + other + ".chromiumapp.org/cb")
+	if st != 400 || !strings.Contains(body, other) || !strings.Contains(body, "VAULT_EXTENSION_IDS") {
+		t.Fatalf("an unregistered extension id should be explained: %d %s", st, body)
+	}
+	st, body = get("https://evil.example/cb")
+	if st != 400 || strings.Contains(body, "VAULT_EXTENSION_IDS") || strings.Contains(body, "evil.example") {
+		t.Fatalf("an unrelated address must get the generic refusal: %d %s", st, body)
+	}
+}
+
+// The extension's sign-in help asks two anonymous questions: GET /api/v1/session (a JSON error means "this is TheVault") and
+// /ext/auth with a deliberately bad challenge (the answer names VAULT_EXTENSION_IDS only for an id the vault does not know).
+func TestExtensionDiagnosticRequests(t *testing.T) {
+	e := newEnv(t)
+	c := e.newClient()
+	st, body, _ := c.do("GET", "/api/v1/session", nil, nil)
+	if st != 401 || !strings.Contains(string(body), `"error"`) {
+		t.Fatalf("anonymous session: %d %s", st, body)
+	}
+	probe := func(id string) string {
+		st, body, _ := c.do("GET", "/ext/auth?code_challenge_method=S256&code_challenge=x&state=x&redirect_uri="+url.QueryEscape("https://"+id+".chromiumapp.org/cb"), nil, nil)
+		if st != 400 {
+			t.Fatalf("probe %s: %d", id, st)
+		}
+		return string(body)
+	}
+	if !strings.Contains(probe(strings.Repeat("a", 32)), "VAULT_EXTENSION_IDS") {
+		t.Fatal("an unregistered id is explained")
+	}
+	if strings.Contains(probe(extID), "VAULT_EXTENSION_IDS") {
+		t.Fatal("a registered id must not be told it is unknown")
+	}
+}

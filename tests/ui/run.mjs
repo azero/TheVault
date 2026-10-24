@@ -2,6 +2,7 @@
 // Trusted Types, accessibility (axe), and saves screenshots in light, dark and phone widths to tests/ui/out/.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import { AxeBuilder } from '@axe-core/playwright'
 import { startStack } from './devserver.mjs'
 import { launch, person, shot, signInAndSetup, unlockWith, PASSWORD, OUT, watch } from './lib.mjs'
@@ -110,6 +111,44 @@ async function until(fn, what, ms = 8000) {
   throw new Error('timed out waiting for ' + what + (last instanceof Error ? ': ' + last.message : ''))
 }
 const countIs = (page, n) => until(async () => (await rows(page).count()) === n, `${n} rows`)
+
+await step('the browser extension is offered, can be dismissed for good, and its install page matches the download', async () => {
+  await A.goto(stack.url + '/#/all')
+  const promo = A.getByRole('region', { name: 'Browser extension' })
+  await promo.waitFor()
+  await shot(A, '04b-extension-prompt')
+  await axe(A, 'list with the extension prompt')
+  await promo.getByRole('button', { name: 'Not now' }).click()
+  await promo.waitFor({ state: 'detached' })
+  await A.reload(); await unlockWith(A); await A.locator('.topbar').waitFor()
+  assert.equal(await A.getByRole('region', { name: 'Browser extension' }).count(), 0, 'a dismissed prompt stays dismissed')
+  await A.evaluate(() => localStorage.removeItem('tv.extension-prompt'))
+  await A.goto(stack.url + '/#/all'); await A.reload(); await unlockWith(A)
+  await promo.waitFor()
+  // the rail leads to the instructions once the vault is open
+  assert.match(await A.locator('nav[aria-label="Downloads"] a').getAttribute('href'), /settings\/extension$/)
+  await promo.getByRole('link', { name: 'Get the extension' }).click()
+  await A.getByRole('heading', { name: 'Install the extension' }).waitFor()
+  const info = await A.evaluate(() => fetch('/download/extension.json').then((r) => r.json()))
+  assert.equal(info.available, true, 'run `npm run build:extension -- --embed` first: this test needs the package in the build')
+  await A.getByText(`Version ${info.version}`).waitFor()
+  await A.getByText('Developer mode').first().waitFor()
+  await A.getByText('This browser').waitFor()
+  await A.getByText('VAULT_EXTENSION_IDS').first().waitFor() // administrators are told what to configure
+  await A.getByText('Check the download').click()
+  assert.equal((await A.locator('.ext-hash').innerText()).trim(), info.sha256)
+  await A.getByRole('button', { name: 'Copy the Google Chrome extensions address' }).click()
+  assert.equal(await A.evaluate(() => navigator.clipboard.readText()), 'chrome://extensions')
+  await shot(A, '04c-extension-settings')
+  await axe(A, 'extension install page')
+  const [dl] = await Promise.all([A.waitForEvent('download'), A.getByRole('link', { name: 'Download extension' }).click()])
+  const bytes = fs.readFileSync(await dl.path())
+  assert.equal(dl.suggestedFilename(), 'thevault-extension.zip')
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), info.sha256, 'the page shows the checksum of what it serves')
+  await A.goto(stack.url + '/#/all')
+  await A.locator('.list-head').waitFor()
+  assert.equal(await A.getByRole('region', { name: 'Browser extension' }).count(), 0, 'downloading it ends the prompt')
+})
 
 await step('add a login with a generated password, a website and a one-time password', async () => {
   await newItem(A)
@@ -385,8 +424,8 @@ await step('import a CSV and export (encrypted and plain)', async () => {
   await A.getByRole('link', { name: 'Activity' }).click()
   await A.getByRole('cell', { name: 'Vault exported (plain)' }).first().waitFor()
   await A.getByRole('cell', { name: 'Vault exported (encrypted)' }).first().waitFor()
-  await A.getByRole('link', { name: 'Browser extension' }).click()
-  await A.getByRole('heading', { name: 'Chrome extension' }).waitFor()
+  await A.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Browser extension' }).click()
+  await A.getByRole('heading', { name: 'Install the extension' }).waitFor()
   await axe(A, 'settings extension')
 })
 

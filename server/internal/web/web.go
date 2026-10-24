@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 //go:embed templates/*.html static
@@ -19,6 +20,10 @@ var assets embed.FS
 type Options struct {
 	Version    string
 	HasSession func(*http.Request) bool
+	// PublicURL is written into the downloaded extension as a suggested vault address (see extension.go).
+	PublicURL string
+	// ExtensionZip replaces the package embedded by the Docker build; tests use it.
+	ExtensionZip []byte
 }
 
 type Server struct {
@@ -26,6 +31,9 @@ type Server struct {
 	pages  map[string]*template.Template
 	static fs.FS
 	etags  map[string]string
+
+	extOnce sync.Once
+	ext     *extPackage
 }
 
 func New(o Options) (*Server, error) {
@@ -77,6 +85,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 		w.Write([]byte("User-agent: *\nDisallow: /\n"))
 	})
 	mux.HandleFunc("GET /download/extension.zip", s.extensionZip)
+	mux.HandleFunc("GET /download/extension.json", s.extensionInfo)
 }
 
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
@@ -146,20 +155,4 @@ func (s *Server) shell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "app", http.StatusOK, page{Title: "Vault"})
-}
-
-func (s *Server) extensionZip(w http.ResponseWriter, r *http.Request) {
-	if s.HasSession == nil || !s.HasSession(r) {
-		http.Error(w, "sign in first", http.StatusUnauthorized)
-		return
-	}
-	b, err := fs.ReadFile(s.static, "downloads/thevault-extension.zip")
-	if err != nil {
-		http.Error(w, "The extension package is not part of this build. Load the extension/ folder unpacked, or run `npm run build:extension`.", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="thevault-extension.zip"`)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Write(b)
 }

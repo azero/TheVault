@@ -28,6 +28,7 @@ LIGHT = [
     ("gold text on surface", "#8a5a12", "#ffffff", 4.5), ("danger button", "#ffffff", "#b42318", 4.5),
     ("input border", "#7a869a", "#ffffff", 3.0), ("focus ring on surface", "#2563eb", "#ffffff", 3.0),
     ("toast", "#f2f4f8", "#0b1220", 4.5),
+    ("text on accent-soft", "#0b1220", "#e8efff", 4.5), ("text on surface-2", "#0b1220", "#f7f8fb", 4.5), ("muted on surface-2", "#46536a", "#f7f8fb", 4.5),
     ("avatar 0", "#3730a3", "#e0e7ff", 4.5), ("avatar 1", "#9d174d", "#fce7f3", 4.5), ("avatar 2", "#166534", "#dcfce7", 4.5), ("avatar 3", "#92400e", "#fef3c7", 4.5),
     ("avatar 4", "#075985", "#e0f2fe", 4.5), ("avatar 5", "#6b21a8", "#f3e8ff", 4.5), ("avatar 6", "#9a3412", "#ffedd5", 4.5), ("avatar 7", "#334155", "#e2e8f0", 4.5),
 ]
@@ -40,6 +41,7 @@ DARK = [
     ("gold text on surface", "#f2c15a", "#0e1522", 4.5), ("danger button", "#1a0606", "#ff9a92", 4.5),
     ("input border", "#6b7a96", "#0e1522", 3.0), ("focus ring on surface", "#8bb8ff", "#0e1522", 3.0),
     ("toast", "#080c14", "#e7ecf5", 4.5),
+    ("text on accent-soft", "#e7ecf5", "#10223f", 4.5), ("text on surface-2", "#e7ecf5", "#121b2b", 4.5), ("muted on surface-2", "#9fb0c9", "#121b2b", 4.5),
     ("avatar 0", "#c7d2fe", "#1e2350", 4.5), ("avatar 1", "#fbcfe8", "#4a1530", 4.5), ("avatar 2", "#bbf7d0", "#123524", 4.5), ("avatar 3", "#fde68a", "#3d2a0a", 4.5),
     ("avatar 4", "#bae6fd", "#0c2a40", 4.5), ("avatar 5", "#e9d5ff", "#34154d", 4.5), ("avatar 6", "#fed7aa", "#3f1d0b", 4.5), ("avatar 7", "#cbd5e1", "#252b38", 4.5),
 ]

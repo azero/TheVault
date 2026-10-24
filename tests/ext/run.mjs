@@ -65,6 +65,47 @@ const idOfName = (pop, name) => pop.evaluate(async (n) => (await chrome.runtime.
 const siteUrl = (p, host = 'localhost') => `http://${host}:${site.port}${p}`
 const tabOf = async (url) => { const p = await ctx.newPage(); watch(p, problems); await p.goto(url); return p }
 
+await step('first run: the downloaded package suggests the vault address, and sign-in problems are explained', async () => {
+  // a copy of the extension the way the server hands it out: with vault.json next to the manifest
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-ext-copy-'))
+  fs.cpSync(EXT_DIR, copy, { recursive: true })
+  fs.writeFileSync(path.join(copy, 'vault.json'), JSON.stringify({ server: stack.url }))
+  const other = await startStack({ extensionIds: '' }) // a vault that has not been told about this extension
+  const c2 = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'pw-ext-')), { executablePath: CHROME, headless: false, viewport: { width: 380, height: 560 },
+    args: ['--headless=new', '--no-sandbox', `--disable-extensions-except=${copy}`, `--load-extension=${copy}`] })
+  try {
+    if (!c2.serviceWorkers().length) await c2.waitForEvent('serviceworker')
+    const p = await c2.newPage()
+    await p.goto(`chrome-extension://${EXT_ID}/popup.html`)
+    await p.getByRole('heading', { name: 'Welcome to TheVault' }).waitFor()
+    assert.equal(await p.locator('#server').inputValue(), stack.url, 'the address from vault.json is suggested')
+    await shot(p, 'ext-00-first-run')
+    // the person still confirms it; a different address typed over it wins
+    await p.locator('#server').fill('https://localhost:1')
+    await p.getByRole('button', { name: 'Continue' }).click()
+    await p.getByRole('heading', { name: 'Sign in' }).waitFor()
+    await p.getByText('Cannot reach this address').waitFor()
+    await shot(p, 'ext-00-unreachable')
+    await p.goto(`chrome-extension://${EXT_ID}/options.html`)
+    await p.locator('#server').fill(other.url)
+    await p.getByRole('button', { name: 'Save address' }).click()
+    await p.getByText('Saved.').waitFor()
+    await p.goto(`chrome-extension://${EXT_ID}/popup.html`)
+    await p.getByText('does not know this extension').waitFor()
+    assert.ok((await p.locator('.pop-problem code').last().innerText()).includes(EXT_ID))
+    await shot(p, 'ext-00-not-registered')
+    await p.goto(`chrome-extension://${EXT_ID}/options.html`)
+    await p.locator('#server').fill(stack.url)
+    await p.getByRole('button', { name: 'Save address' }).click()
+    await p.getByText('Saved.').waitFor()
+    await shot(p, 'ext-00-options')
+    await p.goto(`chrome-extension://${EXT_ID}/popup.html`)
+    await p.getByRole('button', { name: 'Sign in with ClosedDoor' }).waitFor()
+    await p.waitForTimeout(800)
+    assert.equal(await p.locator('.pop-problem .alert').count(), 0, 'a registered extension on a reachable vault sees no warning')
+  } finally { await c2.close(); await other.stop() }
+})
+
 await step('sign in through ClosedDoor and unlock with the master password', async () => {
   const p = await ctx.newPage()
   await p.goto(`chrome-extension://${EXT_ID}/popup.html`)

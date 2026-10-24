@@ -46,7 +46,7 @@ Restore: stop, put `vault.db` and `keys/` back, start. A build refuses to open a
 
 ## Upgrading
 
-Pull the new image and redeploy. Migrations are append-only and run at start-up. Update the extension package too (it is the same version): *Settings → Browser extension* always offers the matching one.
+Pull the new image and redeploy. Migrations are append-only and run at start-up. Update the extension package too (it is the same version): *Settings → Browser extension* always offers the matching one, shows its version and SHA-256, and the zip it serves carries `VAULT_PUBLIC_URL` as the suggested vault address, so set that correctly. People update by downloading again, replacing the files in their extension folder and pressing *reload* on the extension's card.
 
 ## Administration tasks
 
@@ -66,7 +66,9 @@ Pull the new image and redeploy. Migrations are append-only and run at start-up.
 | "The sign-in service is not reachable" | the container cannot reach `VAULT_OIDC_ISSUER` (the server starts anyway and retries) |
 | Sign-in loops back to `/login` | `VAULT_PUBLIC_URL` differs from the address in the browser, so the cookie is not sent, or the redirect URI registered in ClosedDoor does not match exactly |
 | "Sign-in failed" right after ClosedDoor | the pre-login cookie was lost (a proxy stripping cookies, or two tabs racing); start again |
-| Extension: "This sign-in request is not valid" | the extension id is not in `VAULT_EXTENSION_IDS` |
+| Extension: "This vault does not know this copy of the browser extension" (sign-in window) or "TheVault does not know this extension yet" (popup) | the extension id shown is not in `VAULT_EXTENSION_IDS` |
+| Extension: the address is pre-filled with the wrong host | `VAULT_PUBLIC_URL` is what the package suggests; fix it and restart (the package is rebuilt at start) |
+| Settings → Browser extension says the build has no package | not the official image: run `npm run build:extension -- --embed` before `go build`, or load `extension/` unpacked |
 | Extension: cannot reach the server | the address must be https (or localhost) and reachable from the browser; CORS is only granted to ids in `VAULT_EXTENSION_IDS` |
 | Everyone is rate limited or blocked together | `VAULT_TRUSTED_IP_HEADER` is not set behind a proxy, so everyone shares the proxy's address |
 | API calls answer 503 `authentication_unavailable` | TheVault cannot reach `VAULT_OIDC_ISSUER`, or ClosedDoor rejected the app's client id/secret (the log says which; the response never does) |

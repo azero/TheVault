@@ -1,6 +1,11 @@
 package e2e
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -589,15 +594,54 @@ func TestAdmin(t *testing.T) {
 func TestExtensionDownloadNeedsASession(t *testing.T) {
 	e := newEnv(t)
 	anon := e.newClient()
-	if st, _, _ := anon.do("GET", "/download/extension.zip", nil, nil); st != 401 {
-		t.Fatalf("anonymous download: %d", st)
+	for _, p := range []string{"/download/extension.zip", "/download/extension.json"} {
+		if st, _, _ := anon.do("GET", p, nil, nil); st != 401 {
+			t.Fatalf("anonymous %s: %d", p, st)
+		}
 	}
 	c := e.login(subAna, "ana@example.com")
-	st, body, h := c.do("GET", "/download/extension.zip", nil, nil)
+	st, body, h := c.do("GET", "/download/extension.json", nil, nil)
+	var info struct {
+		Available bool   `json:"available"`
+		Version   string `json:"version"`
+		Size      int    `json:"size"`
+		SHA256    string `json:"sha256"`
+	}
+	jsonUnmarshal(body, &info)
+	if st != 200 || h.Get("Cache-Control") != "no-store" {
+		t.Fatalf("extension info: %d %s", st, body)
+	}
+	if info.Available && (info.Version == "" || info.Size < 1000 || len(info.SHA256) != 64) {
+		t.Fatalf("incomplete extension info: %s", body)
+	}
+	st, body, h = c.do("GET", "/download/extension.zip", nil, nil)
 	switch st {
 	case 200: // the Docker build embeds the package
 		if h.Get("Content-Type") != "application/zip" || len(body) < 1000 || string(body[:2]) != "PK" || h.Get("Cache-Control") != "no-store" {
 			t.Fatalf("bad zip response: %v %d bytes", h, len(body))
+		}
+		// the page shows the checksum and size of exactly what is served, and the suggested address is inside
+		if sum := sha256.Sum256(body); !info.Available || info.SHA256 != hex.EncodeToString(sum[:]) || info.Size != len(body) {
+			t.Fatalf("info does not describe the download: %+v", info)
+		}
+		zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := map[string]bool{}
+		for _, f := range zr.File {
+			files[f.Name] = true
+			if f.Name == "vault.json" {
+				rc, _ := f.Open()
+				b, _ := io.ReadAll(rc)
+				rc.Close()
+				if string(b) != `{"server":"`+e.srv.URL+`"}` {
+					t.Fatalf("address hint: %s", b)
+				}
+			}
+		}
+		if !files["manifest.json"] || !files["popup.html"] || !files["vault.json"] {
+			t.Fatalf("package is missing files: %v", files)
 		}
 	case 404: // a plain `go build` has no package: the message says what to do
 		if !strings.Contains(string(body), "build:extension") {

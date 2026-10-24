@@ -174,6 +174,11 @@ func extRedirect(w http.ResponseWriter, r *http.Request, e auth.Ext, q url.Value
 func (s *Server) extAuth(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	redirect, challenge, state := q.Get("redirect_uri"), q.Get("code_challenge"), q.Get("state")
+	if m := reExtRedirect.FindStringSubmatch(redirect); m != nil && !s.extRedirectOK(redirect) {
+		// The usual first-install mistake: say what to ask for instead of a generic refusal.
+		s.ErrorPage(w, http.StatusBadRequest, "This vault does not know this copy of the browser extension yet. Ask an administrator to add its id ("+m[1]+") to VAULT_EXTENSION_IDS, then try again.")
+		return
+	}
 	if !s.extRedirectOK(redirect) || !reChallenge.MatchString(challenge) || len(state) > 128 || !reB64u.MatchString(state+"x") || q.Get("code_challenge_method") != "S256" {
 		// Never redirect to an unvalidated address: show a page instead.
 		s.ErrorPage(w, http.StatusBadRequest, "This sign-in request is not valid. Open the extension again and retry.")

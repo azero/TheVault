@@ -19,3 +19,7 @@ body.popup { width: 380px; min-height: 200px; max-height: 600px; overflow-x: hid
 .pop-msg { min-height: 1.4rem; font-size: .875rem; }
 .pop-gen { display: flex; gap: .4rem; align-items: center; }
 .pop-gen .gen-out { flex: 1; font-size: .9rem; min-height: 2.4rem; padding: .45rem .6rem; }
+.pop-title { font-size: 1.125rem; margin: 0 0 .35rem; }
+.pop-problem:empty { display: none; }
+.pop-problem .alert { font-size: .875rem; }
+.pop-problem .break { word-break: break-all; display: block; }

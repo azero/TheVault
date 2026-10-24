@@ -1,8 +1,9 @@
 import { h, icon, toast, timeAgo, fmtDateTime, mount } from './dom.js'
 import { get, post, del, put, ApiError } from './api.js'
 import { href, navigate } from './router.js'
-import { vault, changeMasterPassword, rotateRecoveryKey, eraseOwnVault, ownFingerprint, importItems, exportable, reportClientEvent, verifyPassword, live, spaceName } from './vault.js'
+import { isAdmin, vault, changeMasterPassword, rotateRecoveryKey, eraseOwnVault, ownFingerprint, importItems, exportable, reportClientEvent, verifyPassword, live, spaceName } from './vault.js'
 import { pageHead, spinner, strengthMeter, emptyState } from './components.js'
+import { extensionInfo, browserKey, canRunExtension, formatSize, rememberExtensionPrompt, BROWSERS } from './extension-promo.js'
 import { alertBox, confirmDialog, passwordDialog, infoDialog } from './dialog.js'
 import { prefs, applyTheme } from './prefs.js'
 import { MIN_PASSWORD, recoveryKitText } from './auth.js'
@@ -214,14 +215,46 @@ async function data() {
 
 // ---------- extension ----------
 async function extension() {
+  const [info, which] = await Promise.all([extensionInfo(), browserKey()])
   const ids = vault.session.extension_ids ?? []
-  return h('div', { class: 'grid-2' },
-    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Chrome extension')), h('div', { class: 'card-body stack' },
-      h('p', {}, 'Fill logins, copy one-time codes and save new passwords right from the browser. It uses the same encryption as this page and locks itself when you are idle.'),
-      ids.length ? null : alertBox('warn', 'No extension id is configured on the server yet (VAULT_EXTENSION_IDS), so the extension cannot sign in. Ask an administrator.'),
-      h('ol', {}, h('li', {}, 'Download the extension and unzip it.'), h('li', {}, 'Open ', h('code', {}, 'chrome://extensions'), ', turn on ', h('strong', {}, 'Developer mode'), ' and choose ', h('strong', {}, 'Load unpacked'), '.'), h('li', {}, 'Select the unzipped folder, pin the TheVault icon, and sign in with ClosedDoor.')),
-      h('a', { class: 'btn btn-primary', href: '/download/extension.zip', download: 'thevault-extension.zip' }, icon('download', 'icon-sm'), 'Download extension'))),
-    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'How it protects you')), h('div', { class: 'card-body' }, h('ul', { class: 'assure' },
-      ...[['shield', 'It never fills a page by itself. You choose the login, or press Ctrl+Shift+L (Cmd+Shift+L on Mac).'], ['globe', 'It fills only on an exact match with the website you saved, never on look-alike addresses, never inside other sites’ frames.'],
-        ['lock', 'Your master password is typed only into the extension’s own popup, never into a web page.'], ['clock', 'It locks after the idle time you set in Account settings.']].map(([ic, t]) => h('li', {}, icon(ic), h('span', {}, t)))))))
+  const supported = canRunExtension()
+  const copyAddress = async (address) => { try { await navigator.clipboard.writeText(address); toast('Copied. Paste it into the address bar.') } catch { toast('Copying was blocked. Type the address instead.', 'error') } }
+  const dl = h('a', { class: 'btn btn-primary', href: '/download/extension.zip', download: info.filename || 'thevault-extension.zip', on: { click: rememberExtensionPrompt } }, icon('download', 'icon-sm'), 'Download extension')
+
+  const notices = []
+  if (!info.available) notices.push(alertBox('warn', isAdmin()
+    ? 'This build of TheVault does not include the extension package. Deploy the official image (it packages the extension), or run `npm run build:extension` and load the extension/ folder with “Load unpacked”.'
+    : 'This copy of TheVault does not include the extension package yet. Ask your administrator.'))
+  if (!ids.length) notices.push(alertBox('warn', isAdmin()
+    ? 'No extension id is allowed yet, so the extension cannot sign in. Set VAULT_EXTENSION_IDS to the extension id (the one shipped with TheVault is gfnpigdeagehjmdcmkijcmgfadlpnlbl) and restart the server.'
+    : 'Your administrator has not switched the extension on for sign-in yet. You can install it now; it starts working once they do.'))
+  if (!supported) notices.push(alertBox('info', 'This browser cannot run the extension. It needs Chrome, Edge, Brave, Vivaldi or Opera on a computer (version 116 or newer). Firefox, Safari and phone browsers are not supported: on those, use this web app.'))
+
+  const browsers = h('ul', { class: 'ext-browsers' }, BROWSERS.map(([key, name, address]) => h('li', { class: key === which ? 'you' : '' },
+    h('span', { class: 'name' }, name, key === which ? h('span', { class: 'badge badge-ok' }, 'This browser') : null),
+    h('code', {}, address),
+    h('button', { class: 'btn btn-sm', type: 'button', 'aria-label': `Copy the ${name} extensions address`, on: { click: () => copyAddress(address) } }, icon('copy', 'icon-sm'), 'Copy'))))
+
+  const install = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Install the extension')), h('div', { class: 'card-body stack' },
+    h('p', {}, 'Fill logins, copy one-time codes and save new passwords right from the browser. It uses the same encryption as this page and locks itself when you are idle.'),
+    ...notices,
+    info.available ? h('div', { class: 'ext-meta' }, dl, h('span', { class: 'muted small' }, `Version ${info.version} · ${formatSize(info.size)}`)) : null,
+    h('ol', { class: 'ext-steps' },
+      h('li', {}, h('strong', {}, 'Download'), ' the file and unzip it into a folder you will keep, for example ', h('code', {}, 'Documents/TheVault extension'), '. The browser runs the extension from that folder, so do not delete it.'),
+      h('li', {}, h('strong', {}, 'Open the extensions page'), ' of your browser (browsers do not let a web page open it, so copy the address and paste it into a new tab):', browsers),
+      h('li', {}, 'Turn on ', h('strong', {}, 'Developer mode'), ', choose ', h('strong', {}, 'Load unpacked'), ' and select the unzipped folder.'),
+      h('li', {}, 'Click the puzzle-piece icon in the toolbar and ', h('strong', {}, 'pin'), ' TheVault. Click it, check that the address is yours, press ', h('strong', {}, 'Continue'), ', sign in with ClosedDoor and unlock with your master password.')),
+    h('details', { class: 'ext-verify' }, h('summary', {}, 'Check the download'),
+      info.available ? h('div', { class: 'stack-sm' },
+        h('p', { class: 'muted small' }, 'SHA-256 of the file you download from this page:'), h('code', { class: 'ext-hash' }, info.sha256),
+        h('p', { class: 'muted small' }, 'Windows: ', h('code', {}, 'certutil -hashfile thevault-extension.zip SHA256'), ' · macOS and Linux: ', h('code', {}, 'shasum -a 256 thevault-extension.zip'))) : h('p', { class: 'muted small' }, 'Nothing to check: there is no package in this build.')),
+    h('div', {}, h('h3', {}, 'Updating'), h('p', { class: 'muted' }, 'When this page shows a newer version than the one on the extension’s own settings page, download it again, replace the files in the same folder and press the reload icon on the extension’s card in the extensions page. You stay signed in and your settings are kept.'))))
+
+  const using = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Using it')), h('div', { class: 'card-body' }, h('ul', { class: 'assure' },
+    ...[['key', 'On a login page, click the TheVault icon and choose Fill, or press Ctrl+Shift+L (Cmd+Shift+L on a Mac).'], ['copy', 'In the list, copy a username, password or one-time code. Copied passwords are cleared from the clipboard after a while.'],
+      ['plus', 'Log in to a site as usual and the extension offers to save the new login. Choose Never for sites you do not want saved.'], ['lock', 'Lock it from the icon at any time. It also locks after the idle time and when you close the browser.']].map(([ic, t]) => h('li', {}, icon(ic), h('span', {}, t))))))
+  const safe = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'How it protects you')), h('div', { class: 'card-body' }, h('ul', { class: 'assure' },
+    ...[['shield', 'It never fills a page by itself. You choose the login, or press Ctrl+Shift+L (Cmd+Shift+L on Mac).'], ['globe', 'It fills only on an exact match with the website you saved, never on look-alike addresses, never inside other sites’ frames.'],
+      ['lock', 'Your master password is typed only into the extension’s own popup, never into a web page.'], ['clock', 'It locks after the idle time you set in Account settings.']].map(([ic, t]) => h('li', {}, icon(ic), h('span', {}, t))))))
+  return h('div', { class: 'grid-2' }, install, h('div', { class: 'stack' }, using, safe))
 }
