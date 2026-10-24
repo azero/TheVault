@@ -73,6 +73,17 @@ python3 tests/contrast.py       # WCAG AA check of the colour tokens, light + da
 - UI: style only through classes in `static/app.css` using its tokens; icons via `icon()` and `static/icons.svg`; one `<h1>` per view; every input has a label; new colour pairs go into `tests/contrast.py`.
 - Add an end-to-end test (`server/internal/e2e`) for any API behaviour you add, a node test for any core function, and a UI test for any new screen.
 
+## OmniCore integration
+
+TheVault can show widgets in OmniCore (signed read-only endpoints, `internal/omnicore`) and send notifications through Beacon (`internal/alerts`). Details: [docs/omnicore.md](docs/omnicore.md). What a future agent must keep:
+
+- **Signed only.** The endpoints exist only when `VAULT_OMNICORE_KEYS` is set, answer nothing without a valid signature, and every failure is the same `401`. They are GET-only and live outside the session/CSRF guard (they carry no cookie). The key is a high-value secret: never log or render it, 32 bytes minimum.
+- **Zero-knowledge first.** A widget never needs, implies or grants an unlocked vault, and never selects ciphertext, wraps, proofs, keys, tokens, or anything inside a blob (item, folder, **space names**). Only counts, times, names the person gave their own devices and audit event names. A new widget field that is new server-visible metadata needs a security-review note in docs/threat-model.md. Per-person widgets are keyed by the `sub`; administrator widgets are operational numbers, never per-person data.
+- **Own data only, TheVault's own roles.** Map the `sub` to the `users` table; never take OmniCore's word for roles. Unknown `sub` is `not_linked`, a locked account is `forbidden`.
+- **Notifications carry no content**: only what happened to the recipient's own account (and anonymous operational events for the admin group); no item/folder/space names, secrets, tokens, client-chosen labels or other people's e-mail addresses. They are driven by the audit trail (`alerts.Sink`), never block a request, and `unlock_failed` stays rate limited. Mandatory categories are only security events about the recipient's own account.
+- **Vendored libraries.** `internal/omniconnect` and `internal/notify` (and `omniconnect/testdata/testvectors.json`) are copied verbatim from OmniCore's `reference/go`; change them upstream, not here.
+- New event name `omnicore_auth_failed` is listed in docs/security.md and mapped in `internal/skynet/events.go`.
+
 ## Security invariants: re-check on any change touching auth, keys, sharing, sync or extension
 
 1. Sign-in: OIDC code + PKCE S256, `state`, `nonce`, RFC 9207 `iss`, RS256 only; pre-login state in an HMAC-signed cookie. ClosedDoor grants decide who may open the app; the `roles` claim only adds `admin`.

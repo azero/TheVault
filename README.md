@@ -56,6 +56,7 @@ docs/         architecture, crypto, security, threat model, API, SkyNet, extensi
 | [security](docs/security.md) / [threat model](docs/threat-model.md) | controls, audit events, attackers considered, honest limits |
 | [api](docs/api.md) | every endpoint of the web app and extension |
 | [automation API](docs/automation-api.md) | optional REST API for scripts (ClosedDoor API keys): health, accounts, sessions, audit log; never vault content |
+| [omnicore](docs/omnicore.md) | optional: widgets for the OmniCore dashboard (counts and status only) and Beacon notifications for security events |
 | [skynet](docs/skynet.md) | events, detection rules, signed block commands |
 | [extension](docs/extension.md) | install, autofill rules, permissions, sign-in flow |
 | [operations](docs/operations.md) | settings, backup, upgrade, admin tasks, troubleshooting |

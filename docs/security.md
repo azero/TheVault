@@ -53,6 +53,16 @@ Optional (`VAULT_API_ENABLED`), described in [automation-api.md](automation-api.
 * **Throttles**: per key (`VAULT_API_RATE_PER_MINUTE`, default 120, applied before ClosedDoor is asked) and 20 failed authentications per minute per client address (checked before ClosedDoor is asked again). 15 s request deadline, 1 MB JSON bodies, unknown fields rejected.
 * **Audited**: failures, forbidden calls, rate limits, every mutating call and every sensitive read are recorded and sent to SkyNet with the key id and name; the key itself never is (at most 8 characters of a rejected key).
 
+## OmniCore and notifications
+
+Optional ([omnicore.md](omnicore.md)); the reasoning is in [threat-model.md](threat-model.md#omnicore-integration).
+
+* **Signed only.** `/integrations/omnicore/v1/*` exists only when `VAULT_OMNICORE_KEYS` is set and answers nothing without a valid HMAC signature (key id, timestamp within ±120 s, single-use nonce, the person's `sub`, method and exact target are signed). Every failure is the same `401`. No cookies, no CSRF token, no CORS; a session cookie never authenticates it.
+* **The key is a high-value secret**: it lets its holder read the widget data of every person (counts, times, device names, event names; never vault content). Environment only, never logged or rendered, rotate by listing two keys; secrets under 32 bytes are ignored.
+* **No unlock, no content.** Widgets never read an unlock state, ciphertext, wrap, proof, key, token, space name or item data; the read models in `store/omnicore.go` select none of them. Per-person widgets are keyed by `sub`; administrator widgets are operational numbers; a locked account is refused.
+* **Throttles**: 900 requests a minute per client address (429), `omnicore_auth_failed` audit rows thinned per address and in total.
+* **Notifications** (Beacon) are produced from the audit trail by `internal/alerts`. Content rule: only what happened to the recipient's own account; never item, folder or space names, secrets, tokens, client-chosen device labels or other people's e-mail addresses. `unlock_failed` is limited to one message per person per 15 minutes. A Beacon outage never affects a request; the Beacon key is never logged.
+
 ## Administrators
 
 Administrators can: list people (counts, times), lock and unlock accounts, end sessions, erase a vault (typed confirmation), read the audit log, see SkyNet status. (Through the optional automation API a key can do the same minus erasing a vault, and minus the per-person item and space counts.) They **cannot** read, list or decrypt any item, and there is no route that could return one. Admin status is re-read from ClosedDoor every five minutes while the access token is valid, and **every admin route requires a fresh token**: once it has expired the role cannot be confirmed, so the admin must lock and unlock (which signs in again) first. Erasing a vault keeps other members' spaces: each is flagged for rotation, one left without an owner promotes its longest-standing member, and the erased person's public keys are retained so the wraps they made stay verifiable until the rotation.
@@ -70,6 +80,7 @@ Written to `audit_log` (365 days by default) and sent to SkyNet as `source: thev
 | Devices | `session_revoked_by_user`, `sessions_revoked_by_user` |
 | Admin | `admin_user_locked`, `admin_user_unlocked`, `admin_sessions_revoked`, `admin_vault_erased` (the first three are also written, with `via=api`, for actions taken through the automation API) |
 | Automation API | `api_auth_failed` (`reason`: `malformed`, `invalid_token`, `unavailable`), `api_forbidden` (`reason`: `scope`, `role`), `api_rate_limited` (`by`: `key`, `ip`), `api_call` (every mutating call and every call to a sensitive read permission; `key_id`, `key_name`, `principal`, `scope`, `method`, `target`, `status`) |
+| OmniCore | `omnicore_auth_failed` (a signed widget request was refused; `reason`: `method`, `body`, `unknown_key`, `timestamp`, `clock_skew`, `nonce`, `user`, `signature`, `replay`, `no_user`; `outcome=failure`; at most one row a minute per address and 30 a minute in total; SkyNet category `authentication`) |
 | Defence | `csrf_failed`, `origin_refused`, `blocked_request`; SkyNet only: `response_applied`, `heartbeat`, `events_dropped` |
 
 Each person can read their own trail under *Settings → Activity*.
@@ -85,4 +96,5 @@ Each person can read their own trail under *Settings → Activity*.
 | Extension sign-in (PKCE, redirects, replay, renewal, CORS) | `server/internal/e2e/ext_test.go` |
 | SkyNet events and commands | `server/internal/e2e/skynet_test.go` |
 | Automation API: authentication, scopes, roles, throttles, no CORS or cookies, no vault content, events without secrets | `server/internal/automation/automation_test.go`, `server/internal/e2e/apikeys_test.go` |
+| OmniCore widgets and Beacon notifications: signing, isolation, roles, no content, floor, outage | `server/internal/omniconnect` (vendored vectors), `server/internal/e2e/omnicore_test.go` |
 | CSP, Trusted Types, storage hygiene, accessibility | `tests/ui/run.mjs` |

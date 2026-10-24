@@ -71,3 +71,22 @@ Optional ([automation-api.md](automation-api.md)); scripts authenticate with Clo
 2. A cache (if enabled) keeps a revoked key alive for at most `VAULT_API_CACHE_SECONDS` (advice: 30 or less; default 0).
 3. The "last active administrator" guard uses the role recorded at each person's last sign-in; it is a safety net against a script locking everyone, not a substitute for least-privilege keys.
 4. API traffic shares a process, a database and the rate limits' memory with the web app; the limits above bound what it can cost.
+
+## OmniCore integration
+
+Optional ([omnicore.md](omnicore.md)). **Security-review note for hard constraint 1**: the integration adds **no new kind of metadata** to what the server stores or shows. The widgets are a second way to see what administrators' screens and the person's own screens already show: counts (items in the personal vault and trash, spaces, spaces needing rotation, accounts, sessions), timestamps (vault created, last unlock, last seen), the labels the person gave their own sessions, audit event names, and SkyNet's deny list. It never touches ciphertext, wrapped or public keys, salts, proofs, tokens, item/folder/space names (all encrypted) or other people's addresses. The only schema change is an index (`audit_log(event, created_at)`) and one extra audit detail (`replaced` on `ext_device_added`). Notifications to Beacon (a new place metadata goes) carry only events about the recipient's own account (and anonymous operational events for administrators), as listed in [omnicore.md](omnicore.md).
+
+| Attacker | Outcome |
+|---|---|
+| Steals the OmniCore signing key | Can read the widget data of any person who has signed in to TheVault: counts, times, their own device labels, event names, and (for an administrator's `sub`) operational numbers. **Cannot read, list or unlock vault content**: no widget touches it, and a signed request never creates or uses an unlocked session. Cannot write anything (GET only). Every use is signed per request, so it needs the secret, not a stolen request. Rotate by listing two keys; guessing is infeasible (256-bit secrets, 32 bytes minimum enforced) and failures are audited and sent to SkyNet (`omnicore_auth_failed`). |
+| Replays or alters a captured request | Refused: timestamp window ±120 s, single-use nonce for 6 minutes, method, exact target and the person's `sub` are all inside the signature; a request that fails the signature does not use up a nonce. |
+| Floods the endpoints | 900 requests a minute per address, then `429`; audit rows from failures are thinned per address and in total, so a flood cannot fill the audit table. |
+| Compromised or malicious OmniCore | Same as a stolen key. It can show wrong numbers to people, but TheVault never acts on anything OmniCore says. |
+| Reads Beacon's messages | Learns that an extension was authorised, a password changed, a recovery key used, wrong passwords entered, a person was added to a space, or an address blocked, with the person's ClosedDoor `sub` as recipient and the originating address. Nothing about names or content. |
+| Uses TheVault to spam a person with alerts | `unlock_failed` is limited to one message per person per 15 minutes; the other security categories require an authenticated action on that account (a new device needs ClosedDoor sign-in; a password change needs the old master password). |
+
+**Residual risks (decisions)**
+
+1. **Administrator role is not re-confirmed live.** TheVault's own admin routes need a fresh ClosedDoor token; a signed OmniCore request carries none. The role is the one recorded at the person's last sign-in, overridden downwards by any live session that ClosedDoor has re-validated to a lower role. A person whose `admin` label was removed in ClosedDoor and who has no live TheVault session keeps seeing the four administrator widgets (operational counts and the blocked addresses, nothing about people) until they next sign in. OmniCore applies its own role check as well. Accounts locked or removed from the app's grant in TheVault are refused.
+2. A person whose ClosedDoor grant for TheVault was removed, but who has never been locked in TheVault, can still see their own widgets (their own metadata) until their next sign-in is refused. They can read nothing that is not already theirs.
+3. Notifications are best effort: queued in memory, retried a few times, dropped if Beacon stays down. They are advisory; the audit log and SkyNet remain the record.

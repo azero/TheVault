@@ -19,6 +19,7 @@ Every audit event is also a SkyNet event ([security.md](security.md) lists them)
 
 * Delivery: events are queued in memory, written to a bounded SQLite outbox (50,000 rows; oldest dropped first), and sent as gzip NDJSON every few seconds or on a burst, with exponential back-off up to 5 minutes. A SkyNet outage loses nothing within the cap, and never slows a request (the audit call does not wait for the network).
 * Automation API events (when `VAULT_API_ENABLED`): `api_auth_failed` (`authentication`), `api_forbidden` (`authorization`), `api_rate_limited` (`web`), `api_call` (`iam` for accounts and sessions, `system` for the audit log and block list). `user` is the person's email (else `sub`) for a user key and `key:<key name>` for a service key; `fields` carry `key_id`, `key_name`, `principal`, `scope`, `method`, `target`, `status`, `reason`, `needs`, `limit`, never a credential. Details: [automation-api.md](automation-api.md#what-reaches-the-audit-log-and-skynet).
+* OmniCore (when `VAULT_OMNICORE_KEYS` is set): `omnicore_auth_failed` (`authentication`, `outcome: failure`, `src_ip`, `fields.reason`) for every refused signed widget request, thinned to one a minute per address. A burst means someone is guessing the key. See [omnicore.md](omnicore.md).
 * `heartbeat` every minute (`version`, `outbox`) lets SkyNet's silent-agent alert catch a dead or cut-off vault. `events_dropped` reports queue overflow.
 
 ## Detection rules shipped in SkyNet (`server/rules/thevault.yml`)

@@ -19,6 +19,10 @@
 | `VAULT_API_ENABLED` | off | `true` turns on the [automation API](automation-api.md) (ClosedDoor API keys for scripts). Needs the three `VAULT_OIDC_*` variables, which the sign-in already requires |
 | `VAULT_API_CACHE_SECONDS` | 0 | reuse ClosedDoor's answer about a key this long (0 = ask every time; at most 300; advice 30 or less: a revoked key keeps working that long) |
 | `VAULT_API_RATE_PER_MINUTE` | 120 | automation API requests per key per minute |
+| `VAULT_OMNICORE_KEYS` | empty | `id:secret[,id2:secret2]` signing keys for the OmniCore widget endpoints (secrets of at least 32 bytes); empty means the endpoints do not exist. See [omnicore.md](omnicore.md) |
+| `VAULT_BEACON_URL`, `VAULT_BEACON_KEY` | empty | Beacon base URL and API key (scope `send`) for notifications; set both or neither |
+| `VAULT_NOTIFY_MIN_LEVEL` | `info` | drop notifications below this level (`info`, `notice`, `important`, `critical`); mandatory security categories always pass |
+| `VAULT_NOTIFY_ADMIN_GROUP` | `admins` | Beacon group that receives administrator security notifications |
 
 Configuration errors stop the server at start-up with a message that names the variable.
 
