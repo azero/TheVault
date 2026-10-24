@@ -354,10 +354,12 @@ func (s *Server) reportBearerFailure(c *rc) {
 // an outage keeps it (the next request retries).
 func (s *Server) revalidate(c *rc, sess *store.Session) bool {
 	ctx := c.R.Context()
-	roles, err := s.Auth.UserInfo(ctx, sess.AccessToken)
+	info, err := s.Auth.UserAccess(ctx, sess.AccessToken)
 	switch {
 	case err == nil:
-		role := auth.RoleFromClaims(roles)
+		s.Store.UpdateSessionApps(ctx, sess.IDHash, info.Apps)
+		sess.Apps = info.Apps
+		role := auth.RoleFromClaims(info.Roles)
 		if role != sess.Role {
 			s.Store.UpdateSessionRole(ctx, sess.IDHash, role)
 			s.Audit.Log(ctx, audit.Event{Name: "role_changed", Actor: sess.Sub, IP: c.IP, Details: map[string]string{"from": sess.Role, "to": role}})

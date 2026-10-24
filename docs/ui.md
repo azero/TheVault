@@ -46,3 +46,12 @@ The logo is `docs/brand/thevault-logo.webp` (original). `python3 -I docs/brand/m
 
 1. `python3 tests/contrast.py`.
 2. `node tests/ui/run.mjs` (axe, CSP, Trusted Types, no horizontal scroll on phones, light/dark/phone screenshots in `tests/ui/out/`). **Open the screenshots**: automated checks do not catch ugly.
+
+
+## Your apps
+
+The compact Your apps rail uses only ClosedDoor's verified `apps` claim. It hides this application, entries without a valid HTTPS launch URL, and applications without a grant. Names are escaped; links load no external assets. The rail scrolls horizontally on narrow screens. Apps refresh with the normal SSO check; a provider outage retains the last verified list, while a successful check with no apps clears it. Older sessions start with no links until verification or sign-in.
+
+The rail and a **Download Chrome extension** entry remain available before vault unlock. The download uses the existing authenticated `/download/extension.zip` route; it is an unpacked Chromium extension, not a Windows or Android installer. No master password or vault data is needed to list apps or download the package.
+
+Real-provider verification (disposable installed ClosedDoor only): `CLOSEDDOOR_DIR=... tests/sso/run_closeddoor.sh`. This creates synthetic accounts and registrations, checks the rail and Chrome ZIP without creating/unlocking a vault, then checks grant and account revocation. It requires the embedded extension ZIP, PHP/MariaDB, Go, Node and Playwright.

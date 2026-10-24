@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/azero/thevault/server/internal/appnav"
 	"time"
 )
 
 type Session struct {
+	Apps                                                             []appnav.App
 	IDHash, Sub, Kind, Label, Role, CSRF, IP, UserAgent, AccessToken string
 	CreatedAt, LastSeen, ExpiresAt, CheckedAt, TokenExpiry           int64
 	UnlockedUntil                                                    int64
@@ -22,6 +24,7 @@ func (s *Session) PublicID() string { return s.IDHash[:16] }
 var ErrNoSession = errors.New("no session")
 
 type NewSession struct {
+	Apps                                               []appnav.App
 	Sub, Kind, Label, Role, IP, UserAgent, AccessToken string
 	TokenExpiry                                        time.Time
 	Idle, Absolute                                     time.Duration
@@ -34,20 +37,22 @@ func (s *Store) CreateSession(ctx context.Context, n NewSession) (token, csrf st
 	token = n.Prefix + RandomToken(32)
 	csrf = RandomToken(24)
 	now := time.Now()
-	_, err = s.DB.ExecContext(ctx, `INSERT INTO sessions(id_hash,sub,kind,label,role,csrf,created_at,last_seen,expires_at,checked_at,access_token,token_expiry,ip,user_agent,unlocked_until)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO sessions(id_hash,sub,kind,label,role,csrf,created_at,last_seen,expires_at,checked_at,access_token,token_expiry,ip,user_agent,unlocked_until,apps)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		Hash(token), n.Sub, n.Kind, clip(n.Label, 120), n.Role, csrf, now.Unix(), now.Unix(), now.Add(n.Absolute).Unix(), now.Unix(), n.AccessToken, n.TokenExpiry.Unix(),
-		clip(n.IP, 64), clip(n.UserAgent, 300), n.UnlockedUntil)
+		clip(n.IP, 64), clip(n.UserAgent, 300), n.UnlockedUntil, appnav.Encode(n.Apps))
 	return token, csrf, err
 }
 
-const sessCols = `s.id_hash,s.sub,s.kind,s.label,s.role,s.csrf,s.created_at,s.last_seen,s.expires_at,s.checked_at,s.access_token,s.token_expiry,s.ip,s.user_agent,s.unlocked_until,COALESCE(u.email,''),COALESCE(u.name,''),COALESCE(u.locked,0),COALESCE(u.unlock_idle_minutes,0)`
+const sessCols = `s.id_hash,s.sub,s.kind,s.label,s.role,s.csrf,s.created_at,s.last_seen,s.expires_at,s.checked_at,s.access_token,s.token_expiry,s.ip,s.user_agent,s.unlocked_until,COALESCE(u.email,''),COALESCE(u.name,''),COALESCE(u.locked,0),COALESCE(u.unlock_idle_minutes,0),s.apps`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var x Session
 	var locked int
+	var rawApps string
 	err := row.Scan(&x.IDHash, &x.Sub, &x.Kind, &x.Label, &x.Role, &x.CSRF, &x.CreatedAt, &x.LastSeen, &x.ExpiresAt, &x.CheckedAt, &x.AccessToken, &x.TokenExpiry,
-		&x.IP, &x.UserAgent, &x.UnlockedUntil, &x.Email, &x.Name, &locked, &x.UnlockIdleMinutes)
+		&x.IP, &x.UserAgent, &x.UnlockedUntil, &x.Email, &x.Name, &locked, &x.UnlockIdleMinutes, &rawApps)
+	x.Apps = appnav.Decode(rawApps)
 	x.Locked = locked != 0
 	return &x, err
 }
@@ -159,5 +164,10 @@ func (s *Store) PurgeSessions(ctx context.Context, webIdle time.Duration) error 
 		return err
 	}
 	_, err = s.DB.ExecContext(ctx, `DELETE FROM ext_codes WHERE expires_at < ?`, now.Unix())
+	return err
+}
+
+func (s *Store) UpdateSessionApps(ctx context.Context, idHash string, apps []appnav.App) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE sessions SET apps=? WHERE id_hash=?`, appnav.Encode(apps), idHash)
 	return err
 }

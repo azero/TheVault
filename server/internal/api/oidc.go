@@ -89,7 +89,7 @@ func (s *Server) authCallback(w http.ResponseWriter, r *http.Request) {
 		extRedirect(w, r, res.Ext, url.Values{"code": {code}})
 		return
 	}
-	cookie, _, err := s.Store.CreateSession(ctx, store.NewSession{Sub: res.Sub, Kind: "web", Label: browserLabel(r.UserAgent()), Role: role, IP: ip, UserAgent: r.UserAgent(),
+	cookie, _, err := s.Store.CreateSession(ctx, store.NewSession{Apps: res.Apps, Sub: res.Sub, Kind: "web", Label: browserLabel(r.UserAgent()), Role: role, IP: ip, UserAgent: r.UserAgent(),
 		AccessToken: res.AccessToken, TokenExpiry: res.TokenExpiry, Idle: webIdle, Absolute: webAbs})
 	if err != nil {
 		s.ErrorPage(w, http.StatusInternalServerError, "Could not start your session.")

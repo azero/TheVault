@@ -11,6 +11,10 @@ const root = document.getElementById('app')
 let stopShell = null
 
 function render() {
+  const links = vault.session?.apps || []
+  mount(document.getElementById('family-nav'),
+    links.length ? h('nav', { class: 'app-rail', 'aria-label': 'Your apps' }, ...links.map((app) => h('a', { href: app.launch_url }, app.name))) : null,
+    h('nav', { class: 'app-rail', 'aria-label': 'Downloads' }, h('a', { href: '/download/extension.zip', download: 'thevault-extension.zip' }, 'Download Chrome extension')))
   stopShell?.(); stopShell = null
   document.body.classList.remove('app-body', 'nav-open')
   root.className = 'app-root'

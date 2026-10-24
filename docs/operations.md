@@ -74,3 +74,8 @@ Pull the new image and redeploy. Migrations are append-only and run at start-up.
 | API calls answer 403 `forbidden` for a user key | the person lacks the `admin` role label for TheVault in ClosedDoor, or is locked in TheVault |
 | API calls answer 429 | the per-key limit (`VAULT_API_RATE_PER_MINUTE`) or 20 failed authentications a minute from that address; see `Retry-After` |
 | SkyNet shows no events | check *Administration → SkyNet* for the last error; the key may have been revoked in SkyNet |
+
+
+### Grant-filtered navigation migration
+
+Schema 3 appends `sessions.apps TEXT NOT NULL DEFAULT '[]'`. Existing sessions retain no navigation links until a verified SSO check or sign-in; the OIDC request now includes the `apps` scope. Preserve the pre-upgrade database/settings/key backup. An older binary refuses the newer schema, so image-only rollback is insufficient: recovery needs a reviewed compatible release or a separately authorized database restore that accounts for subsequent writes. Never edit an applied migration or silently restore over live data.

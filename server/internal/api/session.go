@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/azero/thevault/server/internal/appnav"
 	"log"
 	"net/http"
 	"time"
@@ -33,6 +34,7 @@ func (s *Server) getSession(c *rc) {
 	now := time.Now()
 	idle := int(s.idleFor(sess) / time.Minute)
 	c.ok(map[string]any{
+		"apps":              appnav.Clean(sess.Apps, s.Cfg.OIDCClientID),
 		"user":              userJSON{Sub: sess.Sub, Email: sess.Email, Name: sess.Name, Role: sess.Role},
 		"csrf":              sess.CSRF,
 		"kind":              sess.Kind,

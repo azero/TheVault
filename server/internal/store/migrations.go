@@ -158,4 +158,6 @@ CREATE TABLE retired_keys (
     retired_at INTEGER NOT NULL
 );
 `,
+	// Grant-filtered navigation, empty for older sessions until verified again.
+	`ALTER TABLE sessions ADD COLUMN apps TEXT NOT NULL DEFAULT '[]';`,
 }
