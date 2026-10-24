@@ -1,0 +1,40 @@
+{
+  "secret": "ocs_test_secret_0123456789abcdefghijklmnop",
+  "empty_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "max_skew_seconds": 120,
+  "cases": [
+    {
+      "name": "widget with user and config",
+      "key_id": "ocr_test1",
+      "method": "GET",
+      "target": "/integrations/omnicore/v1/widgets/storage?cfg.folder=abc%20def&cfg.n=3",
+      "timestamp": 1767225600,
+      "nonce": "AAAAAAAAAAAAAAAAAAAAAAAA",
+      "user": "usr_8f2c1d",
+      "canonical": "OMNICORE-V1\nGET\n/integrations/omnicore/v1/widgets/storage?cfg.folder=abc%20def&cfg.n=3\n1767225600\nAAAAAAAAAAAAAAAAAAAAAAAA\nusr_8f2c1d\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "v1=55396bafb0b62a80cf90c3eca65c1d4e10e531fa2a4d283b876338685fcbcea5"
+    },
+    {
+      "name": "manifest without user",
+      "key_id": "ocr_test1",
+      "method": "GET",
+      "target": "/integrations/omnicore/v1/manifest",
+      "timestamp": 1767225600,
+      "nonce": "bm9uY2UtMDEyMzQ1Njc4OQ",
+      "user": "",
+      "canonical": "OMNICORE-V1\nGET\n/integrations/omnicore/v1/manifest\n1767225600\nbm9uY2UtMDEyMzQ1Njc4OQ\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "v1=de3895884969be91afde84cb17fec799c1d1041be197bc50d7b5d8f4dc59b079"
+    },
+    {
+      "name": "search with email-style sub",
+      "key_id": "ocr_test1",
+      "method": "GET",
+      "target": "/integrations/omnicore/v1/search?q=quarterly%20report",
+      "timestamp": 1767225661,
+      "nonce": "Zm9vYmFyYmF6cXV4MTIzNA",
+      "user": "ana@example.com",
+      "canonical": "OMNICORE-V1\nGET\n/integrations/omnicore/v1/search?q=quarterly%20report\n1767225661\nZm9vYmFyYmF6cXV4MTIzNA\nana@example.com\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "v1=7de1f93904652206434a6ed1fa6f00f718f4cbb1ec460ba8d3b2bd7ac5fb73a2"
+    }
+  ]
+}
