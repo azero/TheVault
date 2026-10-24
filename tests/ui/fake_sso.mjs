@@ -68,12 +68,12 @@ export async function startFakeSso({ port = 0, clientId = 'app_test', clientSecr
       if (!c || c.challenge !== challenge || c.redirect !== form.get('redirect_uri')) return send(400, { error: 'invalid_grant' })
       const user = USERS[c.who]; const now = Math.floor(Date.now() / 1000)
       return send(200, { access_token: 'at_' + c.who + '_' + crypto.randomBytes(6).toString('hex'), token_type: 'Bearer', expires_in: state.expirySeconds,
-        id_token: sign({ iss: base, sub: user.sub, aud: clientId, iat: now, exp: now + 3600, nonce: c.nonce, email: user.email, name: user.name, roles: user.roles }) })
+        id_token: sign({ iss: base, sub: user.sub, aud: clientId, iat: now, exp: now + 3600, nonce: c.nonce, email: user.email, name: user.name, roles: user.roles, apps: [{ client_id: 'demo_notes', name: 'Notes', launch_url: 'https://notes.example/' }, { client_id: 'demo_files', name: 'Files', launch_url: 'https://files.example/' }] }) })
     }
     if (u.pathname === '/userinfo') {
       const m = /^Bearer at_([a-z]+)_/.exec(req.headers.authorization || '')
       if (!m || state.revoked.has(m[1])) return send(401, { error: 'invalid_token' })
-      return send(200, { sub: USERS[m[1]].sub, roles: USERS[m[1]].roles })
+      return send(200, { sub: USERS[m[1]].sub, roles: USERS[m[1]].roles, apps: [{ client_id: 'demo_notes', name: 'Notes', launch_url: 'https://notes.example/' }] })
     }
     if (u.pathname === '/logout') {
       const to = u.searchParams.get('post_logout_redirect_uri')

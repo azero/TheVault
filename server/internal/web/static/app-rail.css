@@ -1,0 +1,7 @@
+/* Grant-filtered family navigation. */
+.app-rail{display:flex;align-items:center;gap:1rem;min-height:24px;max-width:100%;overflow-x:auto;white-space:nowrap;padding:0 .75rem;font-size:.75rem;border-bottom:1px solid currentColor;flex-shrink:0}.app-rail a{color:inherit;text-decoration:none}.app-rail a:hover,.app-rail a:focus-visible{text-decoration:underline}
+
+#family-nav{display:flex;min-width:0}#family-nav .app-rail{min-width:0}#family-nav .app-rail:first-child{flex:1}#family-nav nav[aria-label="Downloads"]{flex:none}
+
+/* Keep the existing phone toolbar controls inside the viewport. */
+@media(max-width:30rem){.topbar{gap:.5rem;padding-inline:.5rem}.topbar .search{min-width:0}}

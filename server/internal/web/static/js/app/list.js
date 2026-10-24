@@ -2,6 +2,7 @@
 import { h, icon, toast, timeAgo, fmtDateTime } from './dom.js'
 import { href, navigate } from './router.js'
 import { vault, list, getEntry, canWrite, spaceName, toggleFavourite, trashItem, restoreItem, purgeItem, emptyTrash, moveItem, itemVersions, saveItem, live, PERSONAL, TYPES } from './vault.js'
+import { extensionPromo } from './extension-promo.js'
 import { itemAvatar, fieldRow, totpRow, typeBadge, emptyState, iconButton, strengthMeter } from './components.js'
 import { confirmDialog, modal, alertBox } from './dialog.js'
 import { MATCH_MODES } from '../core/item.js'
@@ -72,6 +73,7 @@ export function listView(ctx, ui) {
   const banners = []
   if (sp?.needsRotation) banners.push(h('div', { class: 'alert alert-warn' }, icon('alert'), h('div', {}, h('strong', {}, 'A member was removed. '), 'Rotate the key so they cannot read new changes. ', h('a', { href: href('/space-manage/' + sp.id) }, 'Rotate now'))))
   if (sp?.warning) banners.push(alertBox('error', sp.warning))
+  if (scope.kind === 'all' && !ui.query) banners.push(extensionPromo())
 
   const items = h('ul', { class: 'items', role: 'list' }, rows.map((e) => {
     const it = e.item
@@ -91,7 +93,7 @@ export function listView(ctx, ui) {
 
   const listPane = h('section', { class: 'list-pane', 'aria-label': 'Items' },
     h('div', { class: 'list-head' }, h('div', { class: 'truncate' }, h('h1', { class: 'truncate' }, scope.title), h('div', { class: 'sub' }, `${rows.length} item${rows.length === 1 ? '' : 's'}`)), h('span', { class: 'spacer' }), ...headExtras, rows.length > 1 ? sort : null),
-    ...banners.map((b) => h('div', { class: 'content' }, b)),
+    ...banners.map((b) => (b.classList.contains('content') ? b : h('div', { class: 'content' }, b))),
     rows.length ? items : empty)
 
   const entry = route.itemId ? getEntry(route.itemId) : null

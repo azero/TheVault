@@ -4,9 +4,24 @@ Manifest V3, vanilla JavaScript, no dependencies, no build step (the package is 
 
 ## Install
 
-* **One person**: *Settings → Browser extension* in the web app downloads `thevault-extension.zip` (embedded in the server image). Unzip, `chrome://extensions` → *Developer mode* → *Load unpacked* → the folder. Pin the icon. Click it, enter the vault address, *Sign in with ClosedDoor*, then the master password.
+* **One person**: the web app offers it in three places: a dismissible *Get the browser extension* banner on the item list (desktop Chromium only, not shown once dismissed, once downloaded, or once the person has an extension device; remembered per browser in `localStorage`), the **Browser extension** entry of the top rail, and *Settings → Browser extension*, which has the whole procedure: download (version, size, SHA-256 of exactly the file served), the extensions-page address for Chrome, Edge, Brave, Vivaldi and Opera (copy buttons, the current browser highlighted), *Developer mode* → *Load unpacked*, pinning, how to verify the download, and how to update (download again, replace the files in the same folder, press *reload* on the extension's card: sign-in and settings are kept). Administrators additionally see what to configure when `VAULT_EXTENSION_IDS` is empty or the build has no package.
+* **The address is pre-filled.** The server rewrites the zip on the fly (once per process, deterministic bytes) and adds `vault.json` = `{"server":"<VAULT_PUBLIC_URL>"}`. On first run the popup only *suggests* that address in the field ("Filled in from where you downloaded this extension"); the person must press *Continue*, and `normalizeServer` still validates it (https, or http on localhost). A package without `vault.json` (the unpacked folder, a CRX) works the same with an empty field. The file is advisory: anyone who can modify the package can already change its code.
 * **A fleet**: build and sign a CRX with your own key, force-install it with Chrome policy (`ExtensionInstallForcelist`), and set `VAULT_EXTENSION_IDS` to its id. The id in this repository (`gfnpigdeagehjmdcmkijcmgfadlpnlbl`) comes from the public `key` in `manifest.json`; it is a stable id for development and unpacked installs, not a secret.
-* Requires Chrome 116+ (or another Chromium with MV3, `chrome.identity` and offscreen documents).
+* Requires Chrome 116+ (or another Chromium with MV3, `chrome.identity` and offscreen documents). Firefox, Safari and phone browsers are not supported; the web app works there.
+
+`GET /download/extension.zip` and `GET /download/extension.json` (`{available, version, size, sha256, filename, prefilled}`) need a signed-in session (no unlocked vault). A build without the package (plain `go build`) answers `available: false` and a 404 that says to run `npm run build:extension`.
+
+## When sign-in does not work
+
+The popup runs two anonymous checks when it shows *Sign in* and again when the sign-in window is closed or refused, instead of the old "Sign-in was cancelled":
+
+| Check | Result shown |
+|---|---|
+| `GET /api/v1/session` cannot be answered | *Cannot reach this address* (typing mistake, VPN) |
+| answered, but not by our JSON API | *This does not look like TheVault* |
+| `GET /ext/auth` with a deliberately bad challenge names `VAULT_EXTENSION_IDS` | *TheVault does not know this extension yet*, with the extension id and a **Copy id** button for the administrator |
+
+The same message is shown in the sign-in window itself (`/ext/auth` answers a well-formed `https://<id>.chromiumapp.org/…` redirect for an unregistered id with the id and the setting to change; any other redirect still gets the generic refusal and no hint).
 
 ## Sign-in flow (the extension never talks to ClosedDoor)
 
@@ -72,3 +87,5 @@ No network permission is requested: calls to the vault work through CORS, which 
 ## Testing
 
 `node tests/ext/run.mjs` loads this exact folder into Chromium (headless=new) with the real server and a fake ClosedDoor and covers: the real sign-in window, unlock, fill, honeypots, other host, hostile frames both ways, the shortcut path (one/many/none), OTP and username-only pages, save bar (new, update, never), locking, ciphertext-only storage, offline unlock.
+
+The first-run suggestion (a copy of the folder with `vault.json`), an unreachable vault, a vault that has not registered the extension id and the options page are covered by the first step of `tests/ext/run.mjs`; the install page, the prompt and the checksum of the download by `tests/ui/run.mjs`; the zip rewrite and routes by `server/internal/web/extension_test.go` and `server/internal/e2e`.

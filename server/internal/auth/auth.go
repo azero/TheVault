@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/azero/thevault/server/internal/appnav"
 	"net/http"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ func (a *Authenticator) ensure(ctx context.Context) (*oidc.Provider, error) {
 func (a *Authenticator) oauth(p *oidc.Provider) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID: a.cfg.ClientID, ClientSecret: a.cfg.ClientSecret, Endpoint: p.Endpoint(), RedirectURL: a.cfg.RedirectURL,
-		Scopes: []string{oidc.ScopeOpenID, "profile", "email"},
+		Scopes: []string{oidc.ScopeOpenID, "profile", "email", "apps"},
 	}
 }
 
@@ -160,6 +161,7 @@ func (a *Authenticator) Begin(w http.ResponseWriter, r *http.Request, returnPath
 
 // Result is a verified sign-in.
 type Result struct {
+	Apps             []appnav.App
 	Sub, Email, Name string
 	Roles            []string
 	AccessToken      string
@@ -235,9 +237,10 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) (*Resul
 		return nil, ErrBadCallback
 	}
 	var cl struct {
-		Email string   `json:"email"`
-		Name  string   `json:"name"`
-		Roles []string `json:"roles"`
+		Email string       `json:"email"`
+		Name  string       `json:"name"`
+		Roles []string     `json:"roles"`
+		Apps  []appnav.App `json:"apps"`
 	}
 	if err := idt.Claims(&cl); err != nil {
 		return nil, ErrBadCallback
@@ -246,12 +249,12 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) (*Resul
 	if exp.IsZero() {
 		exp = time.Now().Add(time.Hour)
 	}
-	return &Result{Sub: idt.Subject, Email: cl.Email, Name: cl.Name, Roles: cl.Roles, AccessToken: tok.AccessToken, TokenExpiry: exp, Return: f.Return, Silent: f.Silent, Ext: f.Ext}, nil
+	return &Result{Sub: idt.Subject, Email: cl.Email, Name: cl.Name, Roles: cl.Roles, Apps: appnav.Clean(cl.Apps, a.cfg.ClientID), AccessToken: tok.AccessToken, TokenExpiry: exp, Return: f.Return, Silent: f.Silent, Ext: f.Ext}, nil
 }
 
 // UserInfo re-validates a session with ClosedDoor. ClosedDoor re-checks that the user is active and still granted
 // this app, so this is how a disabled user loses access without back-channel logout. 401/403 -> ErrRevoked.
-func (a *Authenticator) UserInfo(ctx context.Context, accessToken string) ([]string, error) {
+func (a *Authenticator) UserAccess(ctx context.Context, accessToken string) (*Info, error) {
 	if _, err := a.ensure(ctx); err != nil {
 		return nil, ErrTransient
 	}
@@ -269,12 +272,13 @@ func (a *Authenticator) UserInfo(ctx context.Context, accessToken string) ([]str
 		return nil, ErrTransient
 	}
 	var cl struct {
-		Roles []string `json:"roles"`
+		Roles []string     `json:"roles"`
+		Apps  []appnav.App `json:"apps"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 1<<20)).Decode(&cl); err != nil {
 		return nil, ErrTransient
 	}
-	return cl.Roles, nil
+	return &Info{Roles: cl.Roles, Apps: appnav.Clean(cl.Apps, a.cfg.ClientID)}, nil
 }
 
 // EndSessionURL returns ClosedDoor's logout URL if it advertises one.
@@ -290,4 +294,17 @@ func (a *Authenticator) EndSessionURL(ctx context.Context) string {
 		return ""
 	}
 	return m.End
+}
+
+type Info struct {
+	Roles []string
+	Apps  []appnav.App
+}
+
+func (a *Authenticator) UserInfo(ctx context.Context, token string) ([]string, error) {
+	i, e := a.UserAccess(ctx, token)
+	if e != nil {
+		return nil, e
+	}
+	return i.Roles, nil
 }

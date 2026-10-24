@@ -10,6 +10,14 @@ import (
 // category maps an audit event name to SkyNet's category vocabulary (docs/event-schema.md in SkyNet).
 func category(name string) string {
 	switch {
+	case name == "api_auth_failed" || name == "omnicore_auth_failed":
+		return "authentication"
+	case name == "api_forbidden":
+		return "authorization"
+	case name == "api_rate_limited":
+		return "web"
+	case name == "api_call":
+		return "iam" // the automation API always overrides this with the category of the resource it touched
 	case name == "login" || name == "login_failed" || name == "login_denied" || strings.HasPrefix(name, "unlock") || name == "lock" ||
 		strings.HasPrefix(name, "recovery_") || name == "master_password_changed" || name == "logout" || name == "bearer_failed" || name == "ext_token_failed":
 		return "authentication"
@@ -53,10 +61,16 @@ func FromAudit(e audit.Event, host string, now time.Time) Event {
 		f["user_agent"] = trunc(e.UA, 200)
 	}
 	user := e.Email
-	if user == "" && e.Actor != "" {
+	if e.User != "" {
+		user = e.User
+	} else if user == "" && e.Actor != "" {
 		user = "uid:" + e.Actor
 	}
-	return Event{TS: now.UTC().Format(time.RFC3339Nano), Host: host, Source: "thevault", Category: category(e.Name), Action: e.Name,
+	cat := category(e.Name)
+	if e.Category != "" {
+		cat = e.Category
+	}
+	return Event{TS: now.UTC().Format(time.RFC3339Nano), Host: host, Source: "thevault", Category: cat, Action: e.Name,
 		Outcome: e.Outcome, User: user, SrcIP: e.IP, Fields: f}
 }
 

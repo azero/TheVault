@@ -363,6 +363,33 @@ async function ensureOffscreen() {
   await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['CLIPBOARD'], justification: 'Copy a password and clear it again after a delay.' })
 }
 
+// ---------- why can't I sign in? ----------
+
+/**
+ * Tells a wrong address from an extension the server does not know yet from an outage, so the popup can say what to fix
+ * instead of "sign-in was cancelled". Two anonymous requests: GET /api/v1/session (our API answers with a JSON error), then
+ * /ext/auth with a deliberately bad challenge, whose refusal page names VAULT_EXTENSION_IDS only for an id the vault has not
+ * been told about. Nothing is sent that identifies a person, and no sign-in is started.
+ */
+async function diagnose() {
+  const { server } = await getConfig()
+  const id = chrome.runtime.id
+  if (!server) return { state: 'not_configured', id }
+  const plain = { cache: 'no-store', credentials: 'omit' }
+  try {
+    const res = await fetch(server + '/api/v1/session', { ...plain, headers: { Accept: 'application/json' } })
+    let body = null
+    try { body = await res.json() } catch { /* not JSON */ }
+    if (!body || typeof body.error !== 'string') return { state: 'not_vault', id }
+    const q = new URLSearchParams({ redirect_uri: chrome.identity.getRedirectURL('cb'), code_challenge: 'x', code_challenge_method: 'S256', state: 'x' })
+    const probe = await fetch(`${server}/ext/auth?${q}`, { ...plain, redirect: 'manual' })
+    return { state: (await probe.text()).includes('VAULT_EXTENSION_IDS') ? 'not_registered' : 'ok', id }
+  } catch {
+    // Unreadable: either nothing answered, or something answered without allowing this extension (no CORS header).
+    try { await fetch(server + '/healthz', { mode: 'no-cors', ...plain }); return { state: 'not_registered', id } } catch { return { state: 'unreachable', id } }
+  }
+}
+
 // ---------- messages ----------
 
 const fromExtensionPage = (s) => typeof s.url === 'string' && s.url.startsWith(EXT_URL) && !s.tab?.url?.startsWith('http')
@@ -384,6 +411,7 @@ const EXT_HANDLERS = {
   neverList: async () => hostNever(),
   neverRemove: async (m) => { await local.set({ never: (await hostNever()).filter((h) => h !== m.host) }); return hostNever() },
   fillBest: (m) => fillBest(m.tabId),
+  diagnose: () => diagnose(),
 }
 
 const CONTENT_HANDLERS = {

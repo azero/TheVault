@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/azero/thevault/server/internal/app"
+	"github.com/azero/thevault/server/internal/automation"
 	"github.com/azero/thevault/server/internal/config"
 	"github.com/azero/thevault/server/internal/store"
 )
@@ -33,10 +34,13 @@ func main() {
 		err = healthcheck()
 	case "backup":
 		err = backup()
+	case "api-scopes":
+		// The permissions to paste into ClosedDoor (Admin > Applications > TheVault > API permissions).
+		fmt.Print(automation.CatalogText())
 	case "version", "-v", "--version":
 		fmt.Println("thevault", version)
 	default:
-		fmt.Fprintf(os.Stderr, "usage: thevault [serve|healthcheck|backup|version]\n")
+		fmt.Fprintf(os.Stderr, "usage: thevault [serve|healthcheck|backup|api-scopes|version]\n")
 		os.Exit(2)
 	}
 	if err != nil {
@@ -75,7 +79,16 @@ func serve() error {
 	if cfg.TrustedIPHeader == "" && strings.HasPrefix(cfg.PublicURL, "https://") {
 		log.Printf("warning: VAULT_PUBLIC_URL is https but VAULT_TRUSTED_IP_HEADER is empty; behind a reverse proxy every client will look like the proxy (rate limits, audit and SkyNet will see one address)")
 	}
-	log.Printf("thevault %s listening on %s, data in %s, skynet=%v extensions=%d", version, cfg.Listen, cfg.DataDir, a.Sky != nil, len(cfg.ExtensionIDs))
+	if cfg.APIEnabled && cfg.APICacheSeconds > 30 {
+		log.Printf("warning: VAULT_API_CACHE_SECONDS=%d: a revoked API key keeps working for that long; 30 or less is advised", cfg.APICacheSeconds)
+	}
+	for _, id := range cfg.OmniCoreIgnored {
+		log.Printf("warning: VAULT_OMNICORE_KEYS: the secret of key %q is shorter than 32 bytes and was ignored; generate a longer one in OmniCore", id)
+	}
+	if len(cfg.OmniCoreKeys) == 0 && len(cfg.OmniCoreIgnored) > 0 {
+		log.Printf("warning: no usable OmniCore key: the /integrations/omnicore endpoints are not mounted")
+	}
+	log.Printf("thevault %s listening on %s, data in %s, skynet=%v extensions=%d automation_api=%v omnicore_keys=%d beacon=%v", version, cfg.Listen, cfg.DataDir, a.Sky != nil, len(cfg.ExtensionIDs), cfg.APIEnabled, len(cfg.OmniCoreKeys), a.Notify != nil)
 	select {
 	case err := <-errc:
 		return err

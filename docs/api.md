@@ -1,5 +1,7 @@
 # API reference
 
+> This page documents the interface of the **web app and the Chrome extension** (cookie or extension session, vault data behind an unlock). Scripts and other systems use the separate, optional **[automation API](automation-api.md)**: ClosedDoor API keys, administration and operations only, no vault content. They share the `/api/v1/` prefix but never each other's credentials.
+
 JSON over HTTPS, prefix `/api/v1`. Errors are `{"error": "<code>", "message": "<for people>"}`. All responses are `Cache-Control: no-store`.
 
 **Authentication.** Web: the session cookie plus header `X-Vault-CSRF` (from `GET /session`) on every non-GET. Extension: `Authorization: Bearer vxs_…` (no CSRF header). Requests with a body need `Content-Type: application/json`; unknown fields are refused.
@@ -82,4 +84,4 @@ A `space` in `/sync` is `{id, name_blob, key_version, needs_rotation, role, wrap
 
 ## Pages and static
 
-`GET /login`, `GET /` (the app), `GET /static/*`, `GET /healthz`, `GET /download/extension.zip` (signed-in only), `GET /auth/login[?silent=1&return=/path]`, `GET /auth/callback`.
+`GET /login`, `GET /` (the app), `GET /static/*`, `GET /healthz`, `GET /download/extension.zip` and `GET /download/extension.json` (signed-in only; the package with the vault address added as `vault.json`, and its version, size and SHA-256), `GET /auth/login[?silent=1&return=/path]`, `GET /auth/callback`.

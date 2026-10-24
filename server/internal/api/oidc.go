@@ -89,7 +89,7 @@ func (s *Server) authCallback(w http.ResponseWriter, r *http.Request) {
 		extRedirect(w, r, res.Ext, url.Values{"code": {code}})
 		return
 	}
-	cookie, _, err := s.Store.CreateSession(ctx, store.NewSession{Sub: res.Sub, Kind: "web", Label: browserLabel(r.UserAgent()), Role: role, IP: ip, UserAgent: r.UserAgent(),
+	cookie, _, err := s.Store.CreateSession(ctx, store.NewSession{Apps: res.Apps, Sub: res.Sub, Kind: "web", Label: browserLabel(r.UserAgent()), Role: role, IP: ip, UserAgent: r.UserAgent(),
 		AccessToken: res.AccessToken, TokenExpiry: res.TokenExpiry, Idle: webIdle, Absolute: webAbs})
 	if err != nil {
 		s.ErrorPage(w, http.StatusInternalServerError, "Could not start your session.")
@@ -174,6 +174,11 @@ func extRedirect(w http.ResponseWriter, r *http.Request, e auth.Ext, q url.Value
 func (s *Server) extAuth(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	redirect, challenge, state := q.Get("redirect_uri"), q.Get("code_challenge"), q.Get("state")
+	if m := reExtRedirect.FindStringSubmatch(redirect); m != nil && !s.extRedirectOK(redirect) {
+		// The usual first-install mistake: say what to ask for instead of a generic refusal.
+		s.ErrorPage(w, http.StatusBadRequest, "This vault does not know this copy of the browser extension yet. Ask an administrator to add its id ("+m[1]+") to VAULT_EXTENSION_IDS, then try again.")
+		return
+	}
 	if !s.extRedirectOK(redirect) || !reChallenge.MatchString(challenge) || len(state) > 128 || !reB64u.MatchString(state+"x") || q.Get("code_challenge_method") != "S256" {
 		// Never redirect to an unvalidated address: show a page instead.
 		s.ErrorPage(w, http.StatusBadRequest, "This sign-in request is not valid. Open the extension again and retry.")
@@ -226,12 +231,14 @@ func (s *Server) extToken(c *rc) {
 	}
 	// Renewal: the caller proves it holds the previous token, so unlock state carries over and the old token dies.
 	var unlocked int64
+	replaced := false
 	if h, ok := strings.CutPrefix(c.R.Header.Get("Authorization"), "Bearer "); ok {
 		if old, err := s.Store.GetSession(ctx, strings.TrimSpace(h), webIdle, extIdle); err == nil && old.Kind == "ext" && old.Sub == code.Sub {
 			if old.UnlockedUntil > time.Now().Unix() {
 				unlocked = old.UnlockedUntil
 			}
 			s.Store.DeleteSessionByHash(ctx, old.IDHash)
+			replaced = true
 		}
 	}
 	label := cleanText(in.Label, 80)
@@ -245,6 +252,6 @@ func (s *Server) extToken(c *rc) {
 		c.fail(http.StatusInternalServerError, "server_error", "Could not create the session.")
 		return
 	}
-	s.Audit.Log(ctx, audit.Event{Name: "ext_device_added", Actor: code.Sub, Email: code.Email, IP: c.IP, UA: c.R.UserAgent(), Outcome: "success", Details: map[string]string{"label": label, "renewed": boolStr(unlocked > 0)}})
+	s.Audit.Log(ctx, audit.Event{Name: "ext_device_added", Actor: code.Sub, Email: code.Email, IP: c.IP, UA: c.R.UserAgent(), Outcome: "success", Details: map[string]string{"label": label, "renewed": boolStr(unlocked > 0), "replaced": boolStr(replaced)}})
 	c.ok(map[string]any{"token": token, "expires_at": time.Now().Add(extAbs).Unix(), "user": userJSON{Sub: code.Sub, Email: code.Email, Name: code.Name, Role: code.Role}})
 }

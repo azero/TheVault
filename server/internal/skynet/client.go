@@ -57,6 +57,8 @@ type Client struct {
 	wake    chan struct{}
 
 	deny atomic.Pointer[map[string]int64]
+	// onResponse is told about every applied block/unblock (see OnResponse).
+	onResponse atomic.Pointer[func(what, ip string, ttl int64)]
 
 	mu       sync.Mutex
 	lastSend time.Time
@@ -83,6 +85,10 @@ func New(cfg Config, st *store.Store, a *audit.Auditor) (*Client, error) {
 	a.AddSink(func(e audit.Event) { c.Emit(FromAudit(e, cfg.Host, time.Now())) })
 	return c, nil
 }
+
+// OnResponse registers a callback for every block_ip / unblock_ip that was actually applied (what is "block" or
+// "unblock"). It runs on the command goroutine, so it must not block.
+func (c *Client) OnResponse(f func(what, ip string, ttl int64)) { c.onResponse.Store(&f) }
 
 func (c *Client) credPath() string { return filepath.Join(c.cfg.DataDir, "keys", "skynet.json") }
 

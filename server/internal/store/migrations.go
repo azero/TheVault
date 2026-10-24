@@ -158,4 +158,9 @@ CREATE TABLE retired_keys (
     retired_at INTEGER NOT NULL
 );
 `,
+	// Grant-filtered navigation, empty for older sessions until verified again.
+	`ALTER TABLE sessions ADD COLUMN apps TEXT NOT NULL DEFAULT '[]';`,
+	// Index for the OmniCore widgets (failed unlocks per day/hour, a person's recent security events): lookups by event
+	// name and time instead of walking a person's whole trail, which also holds every item write.
+	`CREATE INDEX audit_event_created ON audit_log(event, created_at);`,
 }

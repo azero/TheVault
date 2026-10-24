@@ -35,6 +35,7 @@ type fakeSSO struct {
 	key    *rsa.PrivateKey
 	mu     sync.Mutex
 	codes  map[string]authz
+	Apps   []map[string]string
 	Roles  []string
 	Login  bool // the SSO browser session exists (for prompt=none)
 	Revoke bool // /userinfo answers 401
@@ -43,13 +44,18 @@ type fakeSSO struct {
 	Sub    string
 	Email  string
 	Name   string
+
+	// API keys (POST /api/introspect), see apikeys_test.go
+	keys           map[string]*fakeKey
+	Introspects    int  // how many introspection requests were made (valid or not)
+	IntrospectDown bool // answer 503
 }
 
 type authz struct{ challenge, nonce, redirect string }
 
 func newFakeSSO(t *testing.T) *fakeSSO {
 	k, _ := rsa.GenerateKey(rand.Reader, 2048)
-	f := &fakeSSO{t: t, key: k, codes: map[string]authz{}, Roles: nil, Login: true, Expiry: 3600, Sub: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Email: "ana@example.com", Name: "Ana Admin"}
+	f := &fakeSSO{t: t, key: k, keys: map[string]*fakeKey{}, codes: map[string]authz{}, Roles: nil, Login: true, Expiry: 3600, Sub: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Email: "ana@example.com", Name: "Ana Admin"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -126,7 +132,7 @@ func (f *fakeSSO) serve(w http.ResponseWriter, r *http.Request) {
 		if roles == nil {
 			roles = []string{}
 		}
-		idt := f.jwt(map[string]any{"iss": base, "sub": f.Sub, "aud": "app_test", "iat": now, "exp": now + 3600, "nonce": a.nonce, "email": f.Email, "name": f.Name, "roles": roles})
+		idt := f.jwt(map[string]any{"iss": base, "sub": f.Sub, "aud": "app_test", "iat": now, "exp": now + 3600, "nonce": a.nonce, "email": f.Email, "name": f.Name, "roles": roles, "apps": f.Apps})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"access_token": "at_" + b64(randBytes(8)), "token_type": "Bearer", "expires_in": f.Expiry, "id_token": idt})
 	case "/userinfo":
@@ -140,8 +146,10 @@ func (f *fakeSSO) serve(w http.ResponseWriter, r *http.Request) {
 			if roles == nil {
 				roles = []string{}
 			}
-			json.NewEncoder(w).Encode(map[string]any{"sub": f.Sub, "roles": roles})
+			json.NewEncoder(w).Encode(map[string]any{"sub": f.Sub, "roles": roles, "apps": f.Apps})
 		}
+	case "/api/introspect":
+		f.introspect(w, r, base)
 	default:
 		http.NotFound(w, r)
 	}

@@ -225,6 +225,9 @@ func (c *Client) execute(ctx context.Context, p *payload) (status, msg string) {
 
 // audit goes through the sink so the SkyNet event is the same shape as every other.
 func (c *Client) audit(ip, what string, ttl int64) {
+	if f := c.onResponse.Load(); f != nil {
+		(*f)(what, ip, ttl)
+	}
 	c.Emit(Event{TS: time.Now().UTC().Format(time.RFC3339Nano), Host: c.cfg.Host, Source: "thevault", Category: "system", Action: "response_applied",
 		Fields: map[string]string{"ip": ip, "what": what, "ttl_seconds": itoa(int(ttl))}})
 }

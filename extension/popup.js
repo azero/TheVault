@@ -27,28 +27,60 @@ async function refresh() {
   return viewList()
 }
 
-function viewConfigure() {
-  const input = h('input', { class: 'input', id: 'server', type: 'url', placeholder: 'https://vault.example.com', autocomplete: 'off', spellcheck: 'false', required: true })
+/** The downloaded package carries the address the web app was served from. It only fills the field: the person still confirms it. */
+async function suggestedServer() {
+  try {
+    const r = await fetch(chrome.runtime.getURL('vault.json'))
+    if (!r.ok) return ''
+    const j = await r.json()
+    return typeof j?.server === 'string' && j.server.length < 300 ? j.server : ''
+  } catch { return '' }
+}
+
+async function viewConfigure() {
+  const suggested = await suggestedServer()
+  const input = h('input', { class: 'input', id: 'server', type: 'url', placeholder: 'https://vault.example.com', autocomplete: 'off', spellcheck: 'false', required: true, value: suggested })
   const msg = h('div', { class: 'pop-msg', role: 'alert' })
   const form = h('form', { class: 'pop-center', novalidate: true, on: { submit: async (e) => {
     e.preventDefault()
     try { await call('configure', { server: input.value }); refresh() } catch (err) { msg.textContent = err.message }
   } } },
-  h('div', { class: 'field' }, h('label', { class: 'label', for: 'server' }, 'Your TheVault address'), input, h('span', { class: 'hint' }, 'Ask your administrator if you do not know it.')), msg,
+  h('div', {}, h('h1', { class: 'pop-title' }, 'Welcome to TheVault'), h('p', { class: 'muted' }, 'Connect this extension to your company vault. Next you sign in with ClosedDoor, then unlock with your master password.')),
+  h('div', { class: 'field' }, h('label', { class: 'label', for: 'server' }, 'Your TheVault address'), input,
+    h('span', { class: 'hint' }, suggested ? 'Filled in from where you downloaded this extension. Check that it is right, then continue.' : 'The address you open TheVault at in your browser. Ask your administrator if you do not know it.')), msg,
   h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Continue'))
   mount(root, header(), form)
   input.focus()
 }
 
+/** What to do about a server the extension cannot use; null when it looks fine. */
+function problemBox(d) {
+  if (d.state === 'unreachable') return h('div', { class: 'alert alert-error', role: 'alert' }, icon('alert'), h('div', {}, h('strong', {}, 'Cannot reach this address. '), 'Check it for typing mistakes, and that you are on the company network or VPN if TheVault needs one.'))
+  if (d.state === 'not_vault') return h('div', { class: 'alert alert-error', role: 'alert' }, icon('alert'), h('div', {}, h('strong', {}, 'This does not look like TheVault. '), 'Check the address you were given.'))
+  if (d.state === 'not_registered') {
+    const copyId = h('button', { class: 'btn btn-sm', type: 'button', on: { click: async () => { try { await navigator.clipboard.writeText(d.id); toast('Extension id copied') } catch { toast('Copying was blocked', 'error') } } } }, icon('copy', 'icon-sm'), 'Copy id')
+    return h('div', { class: 'alert alert-warn', role: 'alert' }, icon('alert'), h('div', { class: 'stack-sm' }, h('div', {}, h('strong', {}, 'TheVault does not know this extension yet. '), 'Ask your administrator to add this extension id to ', h('code', {}, 'VAULT_EXTENSION_IDS'), '.'), h('code', { class: 'break' }, d.id), h('div', {}, copyId)))
+  }
+  return null
+}
+
 function viewSignIn() {
   const msg = h('div', { class: 'pop-msg', role: 'alert' })
+  const problem = h('div', { class: 'pop-problem' })
   const btn = h('button', { class: 'btn btn-primary btn-block', type: 'button' }, 'Sign in with ClosedDoor')
+  const check = async () => { try { const d = await call('diagnose'); mount(problem, problemBox(d)); return d } catch { return { state: 'ok' } } }
   btn.addEventListener('click', async () => {
     btn.disabled = true; msg.textContent = ''
-    try { await call('signIn'); refresh() } catch (e) { msg.textContent = e.message; btn.disabled = false }
+    try { await call('signIn'); refresh() } catch (e) {
+      btn.disabled = false
+      // "cancelled" is what a closed or refused sign-in window looks like; say what is actually wrong when we can tell.
+      const d = await check()
+      msg.textContent = d.state === 'ok' ? e.message : ''
+    }
   })
-  mount(root, header(), h('div', { class: 'pop-center' }, h('p', { class: 'muted' }, 'Sign in with your company account. A window opens for ClosedDoor.'), btn, msg,
+  mount(root, header(), h('div', { class: 'pop-center' }, h('div', {}, h('h1', { class: 'pop-title' }, 'Sign in'), h('p', { class: 'muted' }, 'Sign in with your company account. A window opens for ClosedDoor.')), btn, msg, problem,
     h('p', { class: 'small muted' }, state.server, ' · ', h('a', { href: '#', on: { click: (e) => { e.preventDefault(); chrome.runtime.openOptionsPage() } } }, 'Change'))))
+  check()
 }
 
 function viewUnlock() {
@@ -100,7 +132,7 @@ function viewList() {
         r.hasTotp ? h('button', { class: 'btn btn-ghost btn-icon btn-sm', type: 'button', title: 'Copy one-time code', 'aria-label': `Copy one-time code for ${r.name}`, on: { click: () => otp(r) } }, icon('clock')) : null))
     const parts = []
     if (matches.length) parts.push(h('div', { class: 'pop-section' }, 'For this site'), h('ul', { class: 'pop-list' }, matches.map(row)))
-    parts.push(h('div', { class: 'pop-section' }, query ? 'Results' : 'All items'), others.length ? h('ul', { class: 'pop-list' }, others.map(row)) : h('p', { class: 'muted small' }, query ? 'Nothing matches.' : rows.length ? 'No other items.' : 'Your vault is empty. Add items in the web app, or log in to a site and TheVault will offer to save it.'))
+    parts.push(h('div', { class: 'pop-section' }, query ? 'Results' : 'All items'), others.length ? h('ul', { class: 'pop-list' }, others.map(row)) : query || rows.length ? h('p', { class: 'muted small' }, query ? 'Nothing matches.' : 'No other items.') : h('div', { class: 'stack-sm' }, h('p', { class: 'muted small' }, 'Your vault is empty. Add items in the web app, or log in to a site and TheVault will offer to save it.'), h('button', { class: 'btn btn-sm', type: 'button', on: { click: () => chrome.tabs.create({ url: state.server }) } }, icon('external', 'icon-sm'), 'Open TheVault')))
     mount(body, ...parts)
   }
   search.addEventListener('input', debounce(() => { query = search.value; draw() }, 120))
