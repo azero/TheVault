@@ -96,3 +96,57 @@ func TestAutomationAPISettings(t *testing.T) {
 		t.Fatalf("0 must switch it off: %+v %v", c, err)
 	}
 }
+
+func TestOmniCoreAndBeaconSettings(t *testing.T) {
+	c, err := Load(env(base()))
+	if err != nil || len(c.OmniCoreKeys) != 0 || c.BeaconURL != "" || c.NotifyMinLevel != "info" || c.NotifyAdminGroup != "admins" {
+		t.Fatalf("defaults: nothing mounted, notifications off: %+v %v", c, err)
+	}
+	long := strings.Repeat("s", 40)
+	m := base()
+	m["VAULT_OMNICORE_KEYS"] = "ocr_a:" + long + ", ocr_b:" + long + "x ,ocr_short:tooshort"
+	m["VAULT_BEACON_URL"] = "https://beacon.example.com/"
+	m["VAULT_BEACON_KEY"] = "id.secret"
+	m["VAULT_NOTIFY_MIN_LEVEL"] = "Notice"
+	m["VAULT_NOTIFY_ADMIN_GROUP"] = "secops"
+	c, err = Load(env(m))
+	if err != nil || len(c.OmniCoreKeys) != 2 || c.OmniCoreKeys[1].ID != "ocr_b" || len(c.OmniCoreIgnored) != 1 || c.OmniCoreIgnored[0] != "ocr_short" ||
+		c.BeaconURL != "https://beacon.example.com" || c.NotifyMinLevel != "notice" || c.NotifyAdminGroup != "secops" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	for _, k := range c.OmniCoreKeys {
+		if k.Secret == "" || len(k.Secret) < 32 {
+			t.Fatalf("a short secret was accepted: %+v", k)
+		}
+	}
+	bad := map[string]func(m map[string]string){
+		"no colon":        func(m map[string]string) { m["VAULT_OMNICORE_KEYS"] = "justasecret" },
+		"empty secret":    func(m map[string]string) { m["VAULT_OMNICORE_KEYS"] = "ocr_a:" },
+		"bad id":          func(m map[string]string) { m["VAULT_OMNICORE_KEYS"] = "oc r:" + long },
+		"duplicate id":    func(m map[string]string) { m["VAULT_OMNICORE_KEYS"] = "a:" + long + ",a:" + long + "y" },
+		"beacon url only": func(m map[string]string) { m["VAULT_BEACON_URL"] = "https://b.example.com" },
+		"beacon key only": func(m map[string]string) { m["VAULT_BEACON_KEY"] = "id.secret" },
+		"beacon plain http": func(m map[string]string) {
+			m["VAULT_BEACON_URL"], m["VAULT_BEACON_KEY"] = "http://b.example.com", "id.secret"
+		},
+		"unknown level": func(m map[string]string) { m["VAULT_NOTIFY_MIN_LEVEL"] = "loud" },
+	}
+	for name, mut := range bad {
+		m := base()
+		mut(m)
+		if _, err := Load(env(m)); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+	m = base()
+	m["VAULT_BEACON_URL"], m["VAULT_BEACON_KEY"] = "http://127.0.0.1:9", "id.secret"
+	if _, err := Load(env(m)); err != nil {
+		t.Errorf("a loopback Beacon over http is allowed for development: %v", err)
+	}
+	// an error never repeats a secret
+	m = base()
+	m["VAULT_OMNICORE_KEYS"] = "justasecret" + long
+	if _, err := Load(env(m)); err == nil || strings.Contains(err.Error(), long) {
+		t.Errorf("error must not echo the value: %v", err)
+	}
+}

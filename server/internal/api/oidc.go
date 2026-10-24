@@ -231,12 +231,14 @@ func (s *Server) extToken(c *rc) {
 	}
 	// Renewal: the caller proves it holds the previous token, so unlock state carries over and the old token dies.
 	var unlocked int64
+	replaced := false
 	if h, ok := strings.CutPrefix(c.R.Header.Get("Authorization"), "Bearer "); ok {
 		if old, err := s.Store.GetSession(ctx, strings.TrimSpace(h), webIdle, extIdle); err == nil && old.Kind == "ext" && old.Sub == code.Sub {
 			if old.UnlockedUntil > time.Now().Unix() {
 				unlocked = old.UnlockedUntil
 			}
 			s.Store.DeleteSessionByHash(ctx, old.IDHash)
+			replaced = true
 		}
 	}
 	label := cleanText(in.Label, 80)
@@ -250,6 +252,6 @@ func (s *Server) extToken(c *rc) {
 		c.fail(http.StatusInternalServerError, "server_error", "Could not create the session.")
 		return
 	}
-	s.Audit.Log(ctx, audit.Event{Name: "ext_device_added", Actor: code.Sub, Email: code.Email, IP: c.IP, UA: c.R.UserAgent(), Outcome: "success", Details: map[string]string{"label": label, "renewed": boolStr(unlocked > 0)}})
+	s.Audit.Log(ctx, audit.Event{Name: "ext_device_added", Actor: code.Sub, Email: code.Email, IP: c.IP, UA: c.R.UserAgent(), Outcome: "success", Details: map[string]string{"label": label, "renewed": boolStr(unlocked > 0), "replaced": boolStr(replaced)}})
 	c.ok(map[string]any{"token": token, "expires_at": time.Now().Add(extAbs).Unix(), "user": userJSON{Sub: code.Sub, Email: code.Email, Name: code.Name, Role: code.Role}})
 }

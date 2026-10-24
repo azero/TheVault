@@ -10,7 +10,7 @@ import (
 // category maps an audit event name to SkyNet's category vocabulary (docs/event-schema.md in SkyNet).
 func category(name string) string {
 	switch {
-	case name == "api_auth_failed":
+	case name == "api_auth_failed" || name == "omnicore_auth_failed":
 		return "authentication"
 	case name == "api_forbidden":
 		return "authorization"

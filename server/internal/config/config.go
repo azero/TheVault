@@ -43,11 +43,28 @@ type Config struct {
 	APICacheSeconds  int // how long a ClosedDoor answer may be reused (0 = ask every time; advice: at most 30)
 	APIRatePerMinute int // per key
 
+	// OmniCore (docs/omnicore.md): signed, read-only widget endpoints under /integrations/omnicore/v1. Mounted only when a
+	// key is configured. OmniCoreIgnored lists key ids dropped because their secret is shorter than 32 bytes (main logs it).
+	OmniCoreKeys    []OmniCoreKey
+	OmniCoreIgnored []string
+
+	// Notifications through Beacon (docs/omnicore.md): off unless both URL and key are set.
+	BeaconURL        string
+	BeaconKey        string // "<id>.<secret>" API key with scope send; never logged
+	NotifyMinLevel   string // info | notice | important | critical (mandatory categories ignore it)
+	NotifyAdminGroup string // Beacon group that receives the admin_security category
+
 	// Policy
 	AuditRetentionDays int
 	MaxItemsPerUser    int
 	AllowPlainExport   bool
 	UnlockIdleMinutes  int // default idle lock for the server-side unlock grant
+}
+
+// OmniCoreKey is one accepted OmniCore signing key (two at once during a rotation).
+type OmniCoreKey struct {
+	ID     string
+	Secret string
 }
 
 func (c *Config) SkyNetEnabled() bool {
@@ -103,6 +120,28 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, err
 	}
 
+	if c.OmniCoreKeys, c.OmniCoreIgnored, err = parseOmniCoreKeys(getenv("VAULT_OMNICORE_KEYS")); err != nil {
+		return nil, err
+	}
+	c.BeaconURL = strings.TrimRight(strings.TrimSpace(getenv("VAULT_BEACON_URL")), "/")
+	c.BeaconKey = strings.TrimSpace(getenv("VAULT_BEACON_KEY"))
+	c.NotifyMinLevel = strings.ToLower(strings.TrimSpace(orDefault(getenv("VAULT_NOTIFY_MIN_LEVEL"), "info")))
+	switch c.NotifyMinLevel {
+	case "info", "notice", "important", "critical":
+	default:
+		return nil, errors.New("VAULT_NOTIFY_MIN_LEVEL must be info, notice, important or critical")
+	}
+	c.NotifyAdminGroup = strings.TrimSpace(orDefault(getenv("VAULT_NOTIFY_ADMIN_GROUP"), "admins"))
+	if (c.BeaconURL == "") != (c.BeaconKey == "") {
+		return nil, errors.New("VAULT_BEACON_URL and VAULT_BEACON_KEY must be set together (or both left empty to turn notifications off)")
+	}
+	if c.BeaconURL != "" {
+		bu, err := url.Parse(c.BeaconURL)
+		if err != nil || bu.Host == "" || bu.User != nil || (bu.Scheme != "https" && !(bu.Scheme == "http" && isLoopback(bu.Hostname()))) {
+			return nil, errors.New("VAULT_BEACON_URL must be an https URL")
+		}
+	}
+
 	u, err := url.Parse(c.PublicURL)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.Path != "" {
 		return nil, errors.New("VAULT_PUBLIC_URL must be an absolute origin such as https://vault.example.com")
@@ -137,6 +176,33 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, errors.New("VAULT_SKYNET_KEY must look like <agent id>.<secret>")
 	}
 	return c, nil
+}
+
+var omniKeyID = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// parseOmniCoreKeys reads "id:secret,id2:secret2". Secrets shorter than 32 bytes are ignored (and reported by id, never
+// by value); a malformed entry is an error so a typo cannot silently leave the endpoints unmounted or half configured.
+func parseOmniCoreKeys(v string) (keys []OmniCoreKey, ignored []string, err error) {
+	seen := map[string]bool{}
+	for _, e := range strings.Split(v, ",") {
+		if e = strings.TrimSpace(e); e == "" {
+			continue
+		}
+		id, secret, ok := strings.Cut(e, ":")
+		if !ok || !omniKeyID.MatchString(id) || secret == "" {
+			return nil, nil, errors.New("VAULT_OMNICORE_KEYS must look like <key id>:<secret>[,<key id>:<secret>]")
+		}
+		if seen[id] {
+			return nil, nil, fmt.Errorf("VAULT_OMNICORE_KEYS: key id %q appears twice", id)
+		}
+		seen[id] = true
+		if len(secret) < 32 {
+			ignored = append(ignored, id)
+			continue
+		}
+		keys = append(keys, OmniCoreKey{ID: id, Secret: secret})
+	}
+	return keys, ignored, nil
 }
 
 func hasKeyFile(dataDir string) bool {

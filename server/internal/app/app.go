@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/azero/thevault/server/internal/alerts"
 	"github.com/azero/thevault/server/internal/api"
 	"github.com/azero/thevault/server/internal/audit"
 	"github.com/azero/thevault/server/internal/auth"
@@ -15,6 +16,8 @@ import (
 	"github.com/azero/thevault/server/internal/config"
 	"github.com/azero/thevault/server/internal/httpx"
 	"github.com/azero/thevault/server/internal/keys"
+	"github.com/azero/thevault/server/internal/notify"
+	"github.com/azero/thevault/server/internal/omnicore"
 	"github.com/azero/thevault/server/internal/skynet"
 	"github.com/azero/thevault/server/internal/store"
 	"github.com/azero/thevault/server/internal/web"
@@ -24,6 +27,8 @@ type App struct {
 	Handler http.Handler
 	Sky     *skynet.Client
 	Audit   *audit.Auditor
+	Notify  *notify.Notifier // nil when Beacon is not configured
+	alerts  *alerts.Alerts
 	cfg     *config.Config
 	st      *store.Store
 	ticks   int
@@ -54,6 +59,16 @@ func New(cfg *config.Config, st *store.Store, version string) (*App, error) {
 		skyStatus = sky.Status
 	}
 
+	// Notifications through Beacon (off unless VAULT_BEACON_URL and _KEY are set). They hang off the audit trail, so they
+	// never run inside a request's critical path and cannot change what is audited or sent to SkyNet.
+	min, _ := notify.ParseLevel(cfg.NotifyMinLevel)
+	a.Notify = notify.New(alerts.Config(cfg.BeaconURL, cfg.BeaconKey, min, log.Printf))
+	a.alerts = alerts.New(alerts.Options{Notifier: a.Notify, Store: st, PublicURL: cfg.PublicURL, AdminGroup: cfg.NotifyAdminGroup})
+	aud.AddSink(a.alerts.Sink)
+	if a.Sky != nil {
+		a.Sky.OnResponse(a.alerts.OnResponse)
+	}
+
 	var webSrv *web.Server
 	var apiSrv *api.Server
 	webSrv, err = web.New(web.Options{Version: version, PublicURL: cfg.PublicURL, HasSession: func(r *http.Request) bool { return apiSrv != nil && apiSrv.HasWebSession(r) }})
@@ -73,6 +88,9 @@ func New(cfg *config.Config, st *store.Store, version string) (*App, error) {
 		}
 		auto.Routes(mux)
 	}
+	// OmniCore widgets: signed, read-only, not mounted at all without VAULT_OMNICORE_KEYS. Own authentication, so outside the
+	// session/CSRF guard of the API; still behind the deny list and the security headers below.
+	omnicore.New(omnicore.Options{Cfg: cfg, Store: st, Audit: aud, Version: version}).Mount(mux)
 	var h http.Handler = httpx.SecureHeaders(cfg.SecureCookie, mux)
 	h = a.denyMiddleware(h)
 	a.Handler = h
@@ -113,12 +131,16 @@ func (a *App) Run(ctx context.Context) {
 	} else {
 		close(done)
 	}
+	notifyDone := make(chan struct{})
+	go func() { a.Notify.Run(ctx); close(notifyDone) }() // nil-safe: returns at once when Beacon is not configured
 	a.Tick(ctx, time.Now())
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			<-notifyDone
+			a.alerts.Wait()
 			<-done // do not return (and let the caller close the database) while SkyNet goroutines are still writing
 			return
 		case now := <-t.C:
