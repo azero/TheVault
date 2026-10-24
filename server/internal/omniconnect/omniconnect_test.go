@@ -1,10 +1,9 @@
-// Vendored from OmniCore reference/go/omniconnect; change upstream, not here.
-
 package omniconnect
 
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -83,7 +82,7 @@ func signed(t *testing.T, k Key, target, user string, now time.Time) *http.Reque
 }
 
 func TestVerifyRejects(t *testing.T) {
-	k := Key{ID: "k1", Secret: []byte("0123456789abcdef0123")}
+	k := Key{ID: "k1", Secret: []byte("0123456789abcdef0123456789abcdef")}
 	now := time.Unix(1_800_000_000, 0)
 	ver := NewVerifier(k)
 	ver.SetClock(func() time.Time { return now })
@@ -122,6 +121,10 @@ func TestVerifyRejects(t *testing.T) {
 	if len(ver.nonce) != 1 { // only the first good() call
 		t.Errorf("nonce table has %d entries (nonce %s)", len(ver.nonce), nonce)
 	}
+	// 31 bytes is too short, 32 is accepted
+	if _, err := NewVerifier(Key{ID: "k", Secret: []byte(strings.Repeat("a", 31))}).Verify(signed(t, Key{ID: "k", Secret: []byte(strings.Repeat("a", 31))}, Prefix+"/manifest", "", now)); err == nil {
+		t.Error("31-byte secret accepted")
+	}
 	// short secrets are never accepted as keys
 	if _, err := NewVerifier(Key{ID: "k", Secret: []byte("short")}).Verify(signed(t, Key{ID: "k", Secret: []byte("short")}, Prefix+"/manifest", "", now)); err == nil {
 		t.Error("short secret accepted")
@@ -150,7 +153,7 @@ func (fake) Search(_ context.Context, u User, q string) ([]SearchResult, error) 
 }
 
 func TestHandler(t *testing.T) {
-	k := Key{ID: "k1", Secret: []byte("0123456789abcdef0123")}
+	k := Key{ID: "k1", Secret: []byte("0123456789abcdef0123456789abcdef")}
 	var denied []string
 	mux := http.NewServeMux()
 	Mount(mux, fake{}, NewVerifier(k), Hooks{Denied: func(_ *http.Request, reason string) { denied = append(denied, reason) }})
@@ -241,5 +244,70 @@ func TestPointJSON(t *testing.T) {
 	var ps []Point
 	if err := json.Unmarshal(b, &ps); err != nil || ps[0].T != 100 || !ps[1].Cat || ps[1].Label != "mon" {
 		t.Fatalf("%v %+v", err, ps)
+	}
+}
+
+func TestUniform401ForEverythingElse(t *testing.T) {
+	k := Key{ID: "k1", Secret: []byte("0123456789abcdef0123456789abcdef")}
+	mux := http.NewServeMux()
+	var failed []string
+	Mount(mux, fake{}, NewVerifier(k), Hooks{Failed: func(_ *http.Request, what string, err error) { failed = append(failed, what) }})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	body := func(method, path string, sign bool, chunked bool) (int, string) {
+		var rd *strings.Reader
+		if chunked {
+			rd = strings.NewReader("x")
+		}
+		var req *http.Request
+		if rd != nil {
+			req, _ = http.NewRequest(method, srv.URL+path, io.NopCloser(rd)) // unknown length: chunked
+		} else {
+			req, _ = http.NewRequest(method, srv.URL+path, nil)
+		}
+		if sign {
+			SignRequest(k, req, "u1", time.Now())
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, strings.TrimSpace(string(b))
+	}
+	want := `{"error":"unauthorized"}`
+	for _, c := range []struct {
+		method, path  string
+		sign, chunked bool
+	}{{"POST", Prefix + "/manifest", true, false}, {"DELETE", Prefix + "/widgets/n", true, false}, {"GET", Prefix + "/nonexistent", false, false},
+		{"GET", Prefix + "/widgets/n", true, true}} {
+		if code, b := body(c.method, c.path, c.sign, c.chunked); code != 401 || b != want {
+			t.Errorf("%s %s sign=%v chunked=%v: %d %s", c.method, c.path, c.sign, c.chunked, code, b)
+		}
+	}
+	if code, _ := body("GET", Prefix+"/nonexistent", true, false); code != 404 {
+		t.Errorf("signed unknown path: %d", code)
+	}
+	if code, _ := body("GET", Prefix+"/widgets/boom", true, false); code != 502 || len(failed) != 1 || failed[0] != "widget boom" {
+		t.Errorf("Failed hook: %d %v", code, failed)
+	}
+}
+
+func TestEmptyCollectionsAreArraysNotNull(t *testing.T) {
+	w, err := Sanitize(Widget{Kind: KindTable, Rows: []Row{{}}, Series: []Series{{Name: "a"}}, Days: []Day{{Date: "2026-01-01"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(w)
+	for _, bad := range []string{`"cells":null`, `"events":null`, `"points":null`} {
+		if strings.Contains(string(b), bad) {
+			t.Errorf("%s in %s", bad, b)
+		}
+	}
+	for _, want := range []string{`"cells":[]`, `"events":[]`, `"points":[]`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("missing %s in %s", want, b)
+		}
 	}
 }

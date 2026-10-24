@@ -54,6 +54,9 @@ type Hooks struct {
 	Denied func(r *http.Request, reason string)
 	// Served is called after an authenticated call (user may be "").
 	Served func(r *http.Request, user, what string)
+	// Failed is called when the provider returned an error that is not ErrNotLinked/ErrForbidden/ErrNotFound
+	// (the client only ever sees a generic 502); log err here, never send it to the client.
+	Failed func(r *http.Request, what string, err error)
 }
 
 // Mount registers the protocol on mux. Responses are JSON with Cache-Control: no-store; every failure of
@@ -84,6 +87,11 @@ func Mount(mux *http.ServeMux, p Provider, v *Verifier, h Hooks) {
 			fn(w, r.WithContext(ctx), User{Sub: user})
 		}
 	}
+	// Everything else under the prefix (other methods, unknown paths) is answered by the same verifier, so an
+	// unauthenticated caller always gets the identical 401 and never learns which routes exist.
+	mux.HandleFunc(Prefix+"/", wrapH("unknown", false, func(w http.ResponseWriter, r *http.Request, _ User) {
+		writeErr(w, http.StatusNotFound, "not_found")
+	}))
 	mux.HandleFunc("GET "+Prefix+"/manifest", wrapH("manifest", false, func(w http.ResponseWriter, r *http.Request, _ User) {
 		m := p.Manifest()
 		m.Protocol = ProtocolVersion
@@ -115,6 +123,9 @@ func Mount(mux *http.ServeMux, p Provider, v *Verifier, h Hooks) {
 		case errors.Is(err, ErrNotFound):
 			writeErr(w, http.StatusNotFound, "not_found")
 		default:
+			if h.Failed != nil {
+				h.Failed(r, "widget "+id, err)
+			}
 			writeErr(w, http.StatusBadGateway, "unavailable")
 		}
 	}))
@@ -122,6 +133,9 @@ func Mount(mux *http.ServeMux, p Provider, v *Verifier, h Hooks) {
 		mux.HandleFunc("GET "+Prefix+"/options/{widget}/{key}", wrapH("options", true, func(w http.ResponseWriter, r *http.Request, u User) {
 			opts, err := o.Options(r.Context(), u, r.PathValue("widget"), r.PathValue("key"))
 			if err != nil {
+				if h.Failed != nil && status2(err) == http.StatusBadGateway {
+					h.Failed(r, "options", err)
+				}
 				status, msg := statusOf(err)
 				writeErr(w, status, msg)
 				return
@@ -144,6 +158,9 @@ func Mount(mux *http.ServeMux, p Provider, v *Verifier, h Hooks) {
 			}
 			res, err := sr.Search(r.Context(), u, q)
 			if err != nil {
+				if h.Failed != nil && status2(err) == http.StatusBadGateway {
+					h.Failed(r, "search", err)
+				}
 				status, msg := statusOf(err)
 				writeErr(w, status, msg)
 				return
@@ -205,6 +222,8 @@ func statusOf(err error) (int, string) {
 	}
 	return http.StatusBadGateway, "unavailable"
 }
+
+func status2(err error) int { s, _ := statusOf(err); return s }
 
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})

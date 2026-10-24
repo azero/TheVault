@@ -105,7 +105,7 @@ type Verifier struct {
 func NewVerifier(keys ...Key) *Verifier {
 	v := &Verifier{keys: map[string][]byte{}, now: time.Now, nonce: map[string]time.Time{}}
 	for _, k := range keys {
-		if k.ID != "" && len(k.Secret) >= 16 {
+		if k.ID != "" && len(k.Secret) >= 32 {
 			v.keys[k.ID] = k.Secret
 		}
 	}
@@ -122,7 +122,8 @@ func (v *Verifier) Verify(r *http.Request) (string, error) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return "", wrap("method")
 	}
-	if r.ContentLength > 0 {
+	// ContentLength is -1 for chunked bodies, so anything but a known-empty request is refused.
+	if r.ContentLength != 0 || len(r.TransferEncoding) > 0 {
 		return "", wrap("body")
 	}
 	secret, ok := v.keys[r.Header.Get(HeaderKey)]

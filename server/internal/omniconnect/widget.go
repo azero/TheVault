@@ -248,7 +248,7 @@ func Sanitize(w Widget) (Widget, error) {
 		if i >= MaxItems {
 			break
 		}
-		r := Row{Link: link(v.Link), Tone: t(v.Tone)}
+		r := Row{Cells: []string{}, Link: link(v.Link), Tone: t(v.Tone)}
 		for j, c := range v.Cells {
 			if j >= MaxColumns {
 				break
@@ -261,7 +261,7 @@ func Sanitize(w Widget) (Widget, error) {
 		if i >= MaxSeries {
 			break
 		}
-		ns := Series{Name: s(v.Name)}
+		ns := Series{Name: s(v.Name), Points: []Point{}}
 		for j, p := range v.Points {
 			if j >= MaxPoints {
 				break
@@ -290,7 +290,7 @@ func Sanitize(w Widget) (Widget, error) {
 		if i >= MaxDays {
 			break
 		}
-		nd := Day{Date: clean(d.Date, 10)}
+		nd := Day{Date: clean(d.Date, 10), Events: []Event{}}
 		for j, e := range d.Events {
 			if j >= MaxEvents {
 				break
